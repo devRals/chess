@@ -8,13 +8,11 @@
     "allowJs": true,
     "jsx": "react-jsx",
     "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "declaration": true,
     "strict": true,
-    "alwaysStrict": true,
   },
   "include": ["src", "vite.config.ts"]
 }

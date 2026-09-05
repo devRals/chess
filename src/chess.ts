@@ -68,10 +68,76 @@ export class Board {
     [ChessColor.White]: Board.setupPiecesFor("white"),
   };
 
+  captures = {
+    [ChessColor.Black]: {
+      [PieceType.King]: 0,
+      [PieceType.Queen]: 0,
+      [PieceType.Rook]: 0,
+      [PieceType.Bishop]: 0,
+      [PieceType.Knight]: 0,
+      [PieceType.Pawn]: 0,
+    },
+    [ChessColor.White]: {
+      [PieceType.King]: 0,
+      [PieceType.Queen]: 0,
+      [PieceType.Rook]: 0,
+      [PieceType.Bishop]: 0,
+      [PieceType.Knight]: 0,
+      [PieceType.Pawn]: 0,
+    },
+  };
+
+  public get blackPieces(): BitBoard {
+    const pieceSet = this.bitboards[ChessColor.Black];
+    return (
+      pieceSet[PieceType.King] |
+      pieceSet[PieceType.Queen] |
+      pieceSet[PieceType.Rook] |
+      pieceSet[PieceType.Bishop] |
+      pieceSet[PieceType.Knight] |
+      pieceSet[PieceType.Pawn]
+    );
+  }
+
+  public get whitePieces(): BitBoard {
+    const pieceSet = this.bitboards[ChessColor.White];
+    return (
+      pieceSet[PieceType.King] |
+      pieceSet[PieceType.Queen] |
+      pieceSet[PieceType.Rook] |
+      pieceSet[PieceType.Bishop] |
+      pieceSet[PieceType.Knight] |
+      pieceSet[PieceType.Pawn]
+    );
+  }
+
+  public get occupied(): BitBoard {
+    return this.whitePieces | this.blackPieces;
+  }
+
   reset() {
     this.bitboards = {
       [ChessColor.Black]: Board.setupPiecesFor("black"),
       [ChessColor.White]: Board.setupPiecesFor("white"),
+    };
+
+    this.captures = {
+      [ChessColor.Black]: {
+        [PieceType.King]: 0,
+        [PieceType.Queen]: 0,
+        [PieceType.Rook]: 0,
+        [PieceType.Bishop]: 0,
+        [PieceType.Knight]: 0,
+        [PieceType.Pawn]: 0,
+      },
+      [ChessColor.White]: {
+        [PieceType.King]: 0,
+        [PieceType.Queen]: 0,
+        [PieceType.Rook]: 0,
+        [PieceType.Bishop]: 0,
+        [PieceType.Knight]: 0,
+        [PieceType.Pawn]: 0,
+      },
     };
   }
 
@@ -81,14 +147,51 @@ export class Board {
 
     switch (piece.type) {
       case PieceType.Pawn:
-        const cellPosition = 1n << BigInt(cellIndex);
-
-        return piece.color === ChessColor.White
-          ? cellPosition << 8n
-          : cellPosition >> 8n;
+        return this.getLegalPawnMoves(cellIndex, piece);
       default:
-        return 0n;
+        // All squares. For debugging only
+        return 0xffffffffffffffffn;
     }
+  }
+
+  private getLegalPawnMoves(cellIndex: number, piece: Piece): BitBoard {
+    const cellPosition = 1n << BigInt(cellIndex);
+
+    let finalPositions = 0n;
+
+    let moveRays =
+      piece.color === ChessColor.White
+        ? cellPosition << 8n
+        : cellPosition >> 8n;
+
+    // If the ray doesnt conflict with the opponentPieces add to the final positions
+    if ((moveRays & this.occupied) === 0n) finalPositions |= moveRays;
+
+    const startPositions =
+      piece.color === ChessColor.White
+        ? 0x000000000000ff00n
+        : 0x00ff000000000000n;
+
+    // Is pawn in the start position. If so add an external square forward to move rays
+    if ((cellPosition & startPositions) !== 0n) {
+      const twoSquareMove =
+        piece.color === ChessColor.White
+          ? cellPosition << 16n
+          : cellPosition >> 16n;
+      if ((twoSquareMove & this.occupied) === 0n)
+        finalPositions |= twoSquareMove;
+    }
+
+    let attackRays =
+      piece.color === ChessColor.White
+        ? (cellPosition << (8n + 1n)) + (cellPosition << (8n - 1n))
+        : (cellPosition >> (8n + 1n)) + (cellPosition >> (8n - 1n));
+    const opponentPieces =
+      piece.color === ChessColor.White ? this.blackPieces : this.whitePieces;
+
+    finalPositions |= attackRays & opponentPieces;
+
+    return finalPositions;
   }
 
   move(from: number, to: number) {
@@ -102,10 +205,31 @@ export class Board {
     const fromMask = 1n << BigInt(from);
     const toMask = 1n << BigInt(to);
 
+    const opponentPieces =
+      piece.color === ChessColor.White ? this.blackPieces : this.whitePieces;
+
+    // Is it a capture
+    if ((toMask & opponentPieces) !== 0n) this.capture(to, piece);
+
+    // Remove the piece from "from position" and set it to "to position"
     bitboard &= ~fromMask;
     bitboard |= toMask;
 
     this.bitboards[piece.color][piece.type] = bitboard;
+  }
+
+  /** In order to work this method ensure `cellIndex`'s mask is occupied with a piece */
+  private capture(targetCellIndex: number, captuedBy: Piece) {
+    const targetBitboard = 1n << BigInt(targetCellIndex);
+    const capturedPiece = getCellPiece(this, targetCellIndex);
+    if (!capturedPiece) return;
+
+    let bitboard = this.bitboards[capturedPiece.color][capturedPiece.type];
+    // Clear the target bit on the target bitboard
+    bitboard &= ~targetBitboard;
+    this.bitboards[capturedPiece.color][capturedPiece.type] = bitboard;
+
+    this.captures[captuedBy.color][capturedPiece.type] += 1;
   }
 }
 

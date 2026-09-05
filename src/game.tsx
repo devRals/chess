@@ -1,31 +1,32 @@
 import {
+  ActionIcon,
+  Affix,
+  Box,
   Center,
   ColorSwatch,
   Divider,
-  Flex,
+  Drawer,
   Group,
   Image,
   Paper,
-  SimpleGrid,
   Slider,
   Stack,
   Text,
   Title,
   type MantineColor,
 } from "@mantine/core";
+import { GearIcon } from "@phosphor-icons/react";
 import {
-  Board as ChessBoard,
   ChessColor,
   getCellPiece,
   PieceType,
   type BitBoard,
-  type Move,
   type Piece,
 } from "./chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
 import { useState } from "react";
-import { useSet } from "@mantine/hooks";
+import { useDisclosure } from "@mantine/hooks";
 
 export const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   [PieceType.King]: WHITE_PIECES.king,
@@ -80,19 +81,20 @@ const Cell = ({
       h={size}
       onClick={onCellClick}
       style={{ cursor: "grab" }}
+      pos="relative"
     >
       {piece && (
         <Image src={pieceRenderer[piece.type]} w="100%" draggable={false} />
       )}
       {targetSelection && (
-        <Flex
-          align="center"
-          justify="center"
+        <Box
+          pos="absolute"
+          top={0}
+          left={0}
           w="100%"
           h="100%"
-          bg={`${SELECTION_COLOR}.7`}
+          bg={SELECTION_COLOR}
           opacity={0.5}
-          style={{ zIndex: 99 }}
         />
       )}
     </Center>
@@ -112,30 +114,41 @@ const BOARD_COLORS: Readonly<boolean[][]> = [
 ];
 
 export const Board = () => {
-  const { board, settings, state, setGameState, setTurn } = useGameCtx();
+  const { board, turn, settings, state, setGameState, setTurn } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
   const [moveFrom, setMoveFrom] = useState(0);
 
   const handleMove = (cellIndex: number) => {
     switch (state) {
-      case GameState.SelectingPiece:
+      case GameState.SelectingPiece: {
         const piece = getCellPiece(board, cellIndex);
         if (!piece) return;
+        if (piece.color !== turn) return;
+
         setMoveFrom(cellIndex);
         setGameState(GameState.SelectingTarget);
         const selections = board.getLegalMovesFor(cellIndex);
         setTargetSelections(selections);
         break;
+      }
 
-      case GameState.SelectingTarget:
+      case GameState.SelectingTarget: {
         const to = cellIndex;
-        board.move(moveFrom, to);
 
-        setTurn((t) =>
-          t === ChessColor.White ? ChessColor.Black : ChessColor.White,
-        );
+        // Is a legal move
+        if (((1n << BigInt(cellIndex)) & targetSelections) !== 0n) {
+          board.move(moveFrom, to);
+
+          // Player moved. toggle the turn
+          setTurn((t) =>
+            t === ChessColor.White ? ChessColor.Black : ChessColor.White,
+          );
+        }
+
         setGameState(GameState.SelectingPiece);
+
         break;
+      }
 
       default:
         return;
@@ -145,7 +158,7 @@ export const Board = () => {
   return (
     <Stack gap={0} h="100vh" align="center" justify="center">
       {BOARD_COLORS.map((row, i) => (
-        <Group gap={0} key={`row-${i}`}>
+        <Group key={`row-${String(i)}`} id={`row-${i}`} gap={0}>
           {row.map((cell, j) => {
             const real_i = BOARD_COLORS.length - 1 - i;
             const real_j = j;
@@ -158,11 +171,11 @@ export const Board = () => {
 
             return (
               <Cell
+                cellIndex={cellIndex}
                 targetSelection={isSelectableTarget}
                 color={settings.boardTheme}
                 key={`cell-${cellIndex}`}
                 size={settings.boardSize}
-                cellIndex={cellIndex}
                 piece={getCellPiece(board, cellIndex)}
                 cellColor={cell ? ChessColor.White : ChessColor.Black}
                 onCellClick={() => handleMove(cellIndex)}
@@ -171,8 +184,6 @@ export const Board = () => {
           })}
         </Group>
       ))}
-      {state === GameState.SelectingTarget && null}{" "}
-      {/* TODO: Create a menu for choosing the target position*/}
     </Stack>
   );
 };
@@ -193,6 +204,7 @@ const ACTIVE_THEMES: MantineColor[] = [
 ] as const;
 
 const Settings = () => {
+  const [settingsDrawerOpened, { open, close }] = useDisclosure();
   const { settings, setSettings } = useGameCtx();
 
   const setBoardColor = (c: MantineColor) => {
@@ -204,51 +216,55 @@ const Settings = () => {
   };
 
   return (
-    <Paper component={Stack} withBorder p="xl" w="100%">
-      <Title order={3}>Settings</Title>
-      <Divider />
-      <Group>
-        <Text span fw="bold" fz="lg">
-          Theme:{" "}
-        </Text>
-        {ACTIVE_THEMES.map((c) => (
-          <ColorSwatch
-            onClick={() => setBoardColor(c)}
-            color={c}
-            key={c}
-            style={{ cursor: "pointer" }}
+    <>
+      <Affix>
+        <Paper p="sm">
+          <ActionIcon onClick={open} variant="light" size="xl">
+            <GearIcon size={30} />
+          </ActionIcon>
+        </Paper>
+      </Affix>
+      <Drawer opened={settingsDrawerOpened} onClose={close} position="right">
+        <Title order={3}>Settings</Title>
+        <Divider />
+        <Group>
+          <Text span fw="bold" fz="lg">
+            Theme:{" "}
+          </Text>
+          {ACTIVE_THEMES.map((c) => (
+            <ColorSwatch
+              onClick={() => setBoardColor(c)}
+              color={c}
+              key={c}
+              style={{ cursor: "pointer" }}
+            />
+          ))}
+        </Group>
+        <Group>
+          <Text span fw="bold" fz="lg">
+            Board Size:{" "}
+          </Text>
+          <Slider
+            w="100%"
+            step={5}
+            min={10}
+            max={85}
+            value={settings.boardSize}
+            onChange={(e) => setBoardSize(e)}
           />
-        ))}
-      </Group>
-      <Group>
-        <Text span fw="bold" fz="lg">
-          Board Size:{" "}
-        </Text>
-        <Slider
-          w="100%"
-          step={5}
-          min={10}
-          max={85}
-          value={settings.boardSize}
-          onChange={(e) => setBoardSize(e)}
-        />
-      </Group>
-    </Paper>
+        </Group>
+      </Drawer>
+    </>
   );
 };
 
 export default () => {
   return (
-    <SimpleGrid
-      cols={{
-        md: 1,
-        xl: 2,
-      }}
-      w="100%"
-      p="md"
-    >
-      <Board />
+    <>
+      <Center h="100vh">
+        <Board />
+      </Center>
       <Settings />
-    </SimpleGrid>
+    </>
   );
 };
