@@ -1,11 +1,12 @@
 import { createContext, use, useEffect, useRef, useState } from "react";
 import Game from "./game";
-import { Board, ChessColor } from "./chess";
+import { Board } from "./chess";
 import { type MantineColor } from "@mantine/core";
 
 interface GameSettings {
   boardSize: number;
   boardTheme: MantineColor;
+  boardRotated: boolean;
 }
 
 export enum GameState {
@@ -14,7 +15,6 @@ export enum GameState {
 }
 
 interface GameContext {
-  turn: ChessColor;
   state: GameState;
   board: Board;
   settings: GameSettings;
@@ -22,7 +22,6 @@ interface GameContext {
     newSettings: GameSettings | ((old: GameSettings) => GameSettings),
   ) => void;
   setGameState: React.Dispatch<React.SetStateAction<GameState>>;
-  setTurn: React.Dispatch<React.SetStateAction<ChessColor>>;
 }
 
 const GameCtx = createContext<GameContext | null>(null);
@@ -35,9 +34,8 @@ export const GameProvider = () => {
   const [settings, _setSettings] = useState<GameSettings>({
     boardSize: 90,
     boardTheme: DEFAULT_BOARD_THEME,
+    boardRotated: false,
   });
-  const [turn, setTurn] = useState<ChessColor>(ChessColor.White);
-
   const setSettings = (
     newSettings: GameSettings | ((old: GameSettings) => GameSettings),
   ) => {
@@ -61,8 +59,6 @@ export const GameProvider = () => {
         setSettings,
         state,
         setGameState,
-        turn,
-        setTurn,
       }}
     >
       <Game />

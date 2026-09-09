@@ -6,7 +6,7 @@ import { MantineProvider } from "@mantine/core";
 // # Root Element
 import { createRoot } from "react-dom/client";
 
-const container = document.getElementById("root")!;
+const container = document.querySelector("#root")!;
 const root = createRoot(container);
 
 // # App

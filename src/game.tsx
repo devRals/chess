@@ -1,6 +1,7 @@
 import {
   ActionIcon,
   Affix,
+  Anchor,
   Box,
   Center,
   ColorSwatch,
@@ -8,57 +9,64 @@ import {
   Drawer,
   Group,
   Image,
+  InputLabel,
   Paper,
   Slider,
   Stack,
+  Switch,
   Text,
   Title,
   type MantineColor,
 } from "@mantine/core";
 import { GearIcon } from "@phosphor-icons/react";
 import {
-  ChessColor,
-  getCellPiece,
-  PieceType,
+  type ChessColor,
+  type PieceType,
   type BitBoard,
   type Piece,
+  type Square as SquareType,
+  getSquareIndex,
+  getSquareFromIndex,
+  RANK,
+  type PieceWithPosition,
 } from "./chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
 import { useState } from "react";
 import { useDisclosure } from "@mantine/hooks";
+import { HeartIcon } from "@phosphor-icons/react/dist/ssr";
 
 export const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
-  [PieceType.King]: WHITE_PIECES.king,
-  [PieceType.Queen]: WHITE_PIECES.queen,
-  [PieceType.Rook]: WHITE_PIECES.rook,
-  [PieceType.Bishop]: WHITE_PIECES.bishop,
-  [PieceType.Knight]: WHITE_PIECES.knight,
-  [PieceType.Pawn]: WHITE_PIECES.pawn,
+  king: WHITE_PIECES.king,
+  queen: WHITE_PIECES.queen,
+  rook: WHITE_PIECES.rook,
+  bishop: WHITE_PIECES.bishop,
+  knight: WHITE_PIECES.knight,
+  pawn: WHITE_PIECES.pawn,
 } as const;
 
 const SELECTION_COLOR = "blue";
 
 export const BlackPieceRenderer: Record<PieceType, React.ReactNode> = {
-  [PieceType.King]: BLACK_PIECES.king,
-  [PieceType.Queen]: BLACK_PIECES.queen,
-  [PieceType.Rook]: BLACK_PIECES.rook,
-  [PieceType.Bishop]: BLACK_PIECES.bishop,
-  [PieceType.Knight]: BLACK_PIECES.knight,
-  [PieceType.Pawn]: BLACK_PIECES.pawn,
+  king: BLACK_PIECES.king,
+  queen: BLACK_PIECES.queen,
+  rook: BLACK_PIECES.rook,
+  bishop: BLACK_PIECES.bishop,
+  knight: BLACK_PIECES.knight,
+  pawn: BLACK_PIECES.pawn,
 } as const;
 
-const Cell = ({
+const Square = ({
   size,
-  cellColor,
+  squareColor,
   piece,
-  cellIndex,
+  squareIndex,
   onCellClick,
   targetSelection,
   color,
 }: {
-  cellIndex: number;
-  cellColor: ChessColor;
+  squareIndex: number;
+  squareColor: ChessColor;
   piece?: Piece;
   size: number;
   targetSelection: boolean;
@@ -66,15 +74,13 @@ const Cell = ({
   onCellClick: () => void;
 }) => {
   const pieceRenderer =
-    piece && piece.color === ChessColor.Black
-      ? BlackPieceRenderer
-      : WhitePieceRenderer;
+    piece && piece.color === "black" ? BlackPieceRenderer : WhitePieceRenderer;
 
-  const finalColor = cellColor === ChessColor.Black ? "dark.8" : `${color}.5`;
+  const finalColor = squareColor === "black" ? "dark.8" : `${color}.5`;
 
   return (
     <Center
-      id={`cell-${cellIndex}`}
+      id={`square-${squareIndex}`}
       bg={finalColor}
       w={size}
       bd="2px solid dark.3"
@@ -114,39 +120,59 @@ const BOARD_COLORS: Readonly<boolean[][]> = [
 ];
 
 export const Board = () => {
-  const { board, turn, settings, state, setGameState, setTurn } = useGameCtx();
+  const { board, settings, state, setGameState } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
-  const [moveFrom, setMoveFrom] = useState(0);
+  const [from, setFrom] = useState(0);
+  const [selectedPiece, setSelectedPiece] = useState<PieceWithPosition | null>(
+    null,
+  );
 
-  const handleMove = (cellIndex: number) => {
+  const handleMove = (square: SquareType) => {
+    const squareIndex = getSquareIndex(square);
+
+    const piece = board.getPieceAt(square);
+
     switch (state) {
       case GameState.SelectingPiece: {
-        const piece = getCellPiece(board, cellIndex);
         if (!piece) return;
-        if (piece.color !== turn) return;
+        if (piece.color !== board.turn) return;
 
-        setMoveFrom(cellIndex);
+        setSelectedPiece({ ...piece, position: square });
+        setFrom(squareIndex);
         setGameState(GameState.SelectingTarget);
-        const selections = board.getLegalMovesFor(cellIndex);
+        const selections = board.getLegalMovesFor(square);
         setTargetSelections(selections);
         break;
       }
 
       case GameState.SelectingTarget: {
-        const to = cellIndex;
+        const to = squareIndex;
 
+        const targetSquareBitboard = 1n << BigInt(squareIndex);
         // Is a legal move
-        if (((1n << BigInt(cellIndex)) & targetSelections) !== 0n) {
-          board.move(moveFrom, to);
+        if ((targetSquareBitboard & targetSelections) !== 0n) {
+          // Check if its a promotion
+          const promotionSquares = RANK[1] | RANK[8];
+          if (
+            selectedPiece &&
+            selectedPiece.type === "pawn" &&
+            (targetSquareBitboard & promotionSquares) !== 0n
+          ) {
+            const pieceToPromote = selectedPiece;
+            // TODO: Auto promote to a queen for debugging only
+            board.promote("queen", pieceToPromote, getSquareFromIndex(to));
 
-          // Player moved. toggle the turn
-          setTurn((t) =>
-            t === ChessColor.White ? ChessColor.Black : ChessColor.White,
-          );
+            setSelectedPiece(null);
+            setGameState(GameState.SelectingPiece);
+            break;
+          }
+
+          // Board already handles the turns
+          board.move(getSquareFromIndex(from), getSquareFromIndex(to));
         }
 
+        setSelectedPiece(null);
         setGameState(GameState.SelectingPiece);
-
         break;
       }
 
@@ -157,28 +183,35 @@ export const Board = () => {
 
   return (
     <Stack gap={0} h="100vh" align="center" justify="center">
-      {BOARD_COLORS.map((row, i) => (
-        <Group key={`row-${String(i)}`} id={`row-${i}`} gap={0}>
-          {row.map((cell, j) => {
+      {BOARD_COLORS.map((rank, i) => (
+        <Group key={`row-${i.toString()}`} id={`row-${i}`} gap={0}>
+          {rank.map((isWhite, j) => {
             const real_i = BOARD_COLORS.length - 1 - i;
             const real_j = j;
 
-            const cellIndex = real_i * 8 + real_j;
+            let squareIndex = real_i * 8 + real_j;
+
+            // Square Index can be up to 63. Not 64
+            squareIndex = settings.boardRotated
+              ? 63 - squareIndex
+              : squareIndex;
 
             const isSelectableTarget =
               state === GameState.SelectingTarget &&
-              ((1n << BigInt(cellIndex)) & BigInt(targetSelections)) !== 0n;
+              ((1n << BigInt(squareIndex)) & BigInt(targetSelections)) !== 0n;
+
+            const square = getSquareFromIndex(squareIndex);
 
             return (
-              <Cell
-                cellIndex={cellIndex}
+              <Square
+                squareIndex={squareIndex}
                 targetSelection={isSelectableTarget}
                 color={settings.boardTheme}
-                key={`cell-${cellIndex}`}
+                key={`square-${square}`}
                 size={settings.boardSize}
-                piece={getCellPiece(board, cellIndex)}
-                cellColor={cell ? ChessColor.White : ChessColor.Black}
-                onCellClick={() => handleMove(cellIndex)}
+                piece={board.getPieceAt(square)}
+                squareColor={isWhite ? "white" : "black"}
+                onCellClick={() => handleMove(square)}
               />
             );
           })}
@@ -198,7 +231,6 @@ const ACTIVE_THEMES: MantineColor[] = [
   "blue",
   "indigo",
   "violet",
-  "grape",
   "pink",
   "gray",
 ] as const;
@@ -215,6 +247,10 @@ const Settings = () => {
     setSettings((s) => ({ ...s, boardSize: newSize }));
   };
 
+  const rotateBoard = (boardRotated: boolean) => {
+    setSettings((s) => ({ ...s, boardRotated }));
+  };
+
   return (
     <>
       <Affix>
@@ -225,34 +261,58 @@ const Settings = () => {
         </Paper>
       </Affix>
       <Drawer opened={settingsDrawerOpened} onClose={close} position="right">
-        <Title order={3}>Settings</Title>
-        <Divider />
-        <Group>
-          <Text span fw="bold" fz="lg">
-            Theme:{" "}
-          </Text>
-          {ACTIVE_THEMES.map((c) => (
-            <ColorSwatch
-              onClick={() => setBoardColor(c)}
-              color={c}
-              key={c}
-              style={{ cursor: "pointer" }}
+        <Stack>
+          <Title order={3}>Settings</Title>
+          <Divider />
+          <Group>
+            <Text span fw="bold" fz="lg">
+              Theme:{" "}
+            </Text>
+            {ACTIVE_THEMES.map((c) => (
+              <ColorSwatch
+                onClick={() => setBoardColor(c)}
+                color={c}
+                key={c}
+                style={{ cursor: "pointer" }}
+              />
+            ))}
+          </Group>
+          <Group>
+            <Text span fw="bold" fz="lg">
+              Board Size:{" "}
+            </Text>
+            <Slider
+              w="100%"
+              step={5}
+              min={10}
+              max={85}
+              value={settings.boardSize}
+              onChange={(e) => setBoardSize(e)}
             />
-          ))}
-        </Group>
-        <Group>
-          <Text span fw="bold" fz="lg">
-            Board Size:{" "}
-          </Text>
-          <Slider
-            w="100%"
-            step={5}
-            min={10}
-            max={85}
-            value={settings.boardSize}
-            onChange={(e) => setBoardSize(e)}
+          </Group>
+          <Switch
+            label={
+              <InputLabel size="md" content="Rotate Board">
+                Rotate Board
+              </InputLabel>
+            }
+            checked={settings.boardRotated}
+            onChange={(v) => rotateBoard(v.currentTarget.checked)}
           />
-        </Group>
+        </Stack>
+
+        <Divider mt="md" />
+
+        <Stack align="center">
+          <Text ta="center" fz="lg" fw="bold">
+            Made by{" "}
+            <Anchor href="https://devRals.github.io/" target="_blank">
+              devRals
+            </Anchor>{" "}
+            with lots of love.
+          </Text>
+          <HeartIcon weight="fill" color="red" size={30} />
+        </Stack>
       </Drawer>
     </>
   );
