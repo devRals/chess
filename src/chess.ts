@@ -353,6 +353,11 @@ export class Board {
     return finalPositions;
   }
 
+  private toggleTurn() {
+    if (this.turn === "white") this.turn = "black";
+    else this.turn = "white";
+  }
+
   clear(square: Square) {
     const piece = this.getPieceAt(square);
     if (!piece) return;
@@ -389,8 +394,7 @@ export class Board {
 
     this.bitboards[piece.color][piece.type] = bitboard;
 
-    if (this.turn === "white") this.turn = "black";
-    else this.turn = "white";
+    this.toggleTurn();
   }
 
   /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
@@ -430,5 +434,6 @@ export class Board {
     this.bitboards[pieceToPromote.color].pawn &= ~piecePosition;
 
     pieceSet[to] |= squareBitboard;
+    this.toggleTurn();
   }
 }

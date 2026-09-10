@@ -29,6 +29,8 @@ import {
   getSquareFromIndex,
   RANK,
   type PieceWithPosition,
+  type PromotionPieceType,
+  type Square,
 } from "./chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
@@ -36,7 +38,7 @@ import { useState } from "react";
 import { useDisclosure } from "@mantine/hooks";
 import { HeartIcon } from "@phosphor-icons/react/dist/ssr";
 
-export const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
+const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   king: WHITE_PIECES.king,
   queen: WHITE_PIECES.queen,
   rook: WHITE_PIECES.rook,
@@ -47,13 +49,31 @@ export const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
 
 const SELECTION_COLOR = "blue";
 
-export const BlackPieceRenderer: Record<PieceType, React.ReactNode> = {
+const BlackPieceRenderer: Record<PieceType, React.ReactNode> = {
   king: BLACK_PIECES.king,
   queen: BLACK_PIECES.queen,
   rook: BLACK_PIECES.rook,
   bishop: BLACK_PIECES.bishop,
   knight: BLACK_PIECES.knight,
   pawn: BLACK_PIECES.pawn,
+} as const;
+
+const PROMOTION_PIECES: Record<
+  ChessColor,
+  Record<PromotionPieceType, string>
+> = {
+  black: {
+    queen: BLACK_PIECES.queen,
+    rook: BLACK_PIECES.rook,
+    bishop: BLACK_PIECES.bishop,
+    knight: BLACK_PIECES.knight,
+  },
+  white: {
+    queen: WHITE_PIECES.queen,
+    rook: WHITE_PIECES.rook,
+    bishop: WHITE_PIECES.bishop,
+    knight: WHITE_PIECES.knight,
+  },
 } as const;
 
 const Square = ({
@@ -126,6 +146,12 @@ export const Board = () => {
   const [selectedPiece, setSelectedPiece] = useState<PieceWithPosition | null>(
     null,
   );
+  const [
+    promotionPanelOpened,
+    { open: openPromotionPanel, close: closePromotionPanel },
+  ] = useDisclosure(false);
+  const [targetPromotionSquare, setTargetPromotionSquare] =
+    useState<SquareType>("a1");
 
   const handleMove = (square: SquareType) => {
     const squareIndex = getSquareIndex(square);
@@ -158,12 +184,8 @@ export const Board = () => {
             selectedPiece.type === "pawn" &&
             (targetSquareBitboard & promotionSquares) !== 0n
           ) {
-            const pieceToPromote = selectedPiece;
-            // TODO: Auto promote to a queen for debugging only
-            board.promote("queen", pieceToPromote, getSquareFromIndex(to));
-
-            setSelectedPiece(null);
-            setGameState(GameState.SelectingPiece);
+            setTargetPromotionSquare(getSquareFromIndex(to));
+            openPromotionPanel();
             break;
           }
 
@@ -181,8 +203,46 @@ export const Board = () => {
     }
   };
 
+  const handlePromotion = (promoteTo: PromotionPieceType) => {
+    const pieceToPromote = selectedPiece;
+    if (!pieceToPromote) throw new Error("Cannot promote an undefined piece");
+    board.promote(promoteTo, pieceToPromote, targetPromotionSquare);
+    setSelectedPiece(null);
+    setGameState(GameState.SelectingPiece);
+    closePromotionPanel();
+  };
+
   return (
-    <Stack gap={0} h="100vh" align="center" justify="center">
+    <Stack gap={0} h="100vh" align="center" justify="center" pos="relative">
+      {promotionPanelOpened && (
+        <Paper
+          p="lg"
+          withBorder
+          pos="absolute"
+          bottom={0}
+          right={0}
+          bg="dark"
+          style={{ zIndex: 1 }}
+        >
+          <Group>
+            {Object.entries(PROMOTION_PIECES[selectedPiece!.color]).map(
+              ([pieceType, pieceImage]) => (
+                <Box
+                  style={{ cursor: "pointer" }}
+                  w={80}
+                  bd="1px solid var(--mantine-color-dark-filled)"
+                  key={`promotion-${pieceType}`}
+                  onClick={() =>
+                    handlePromotion(pieceType as PromotionPieceType)
+                  }
+                >
+                  <Image w="100%" src={pieceImage} />
+                </Box>
+              ),
+            )}
+          </Group>
+        </Paper>
+      )}
       {BOARD_COLORS.map((rank, i) => (
         <Group key={`row-${i.toString()}`} id={`row-${i}`} gap={0}>
           {rank.map((isWhite, j) => {
