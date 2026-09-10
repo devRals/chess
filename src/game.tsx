@@ -4,6 +4,7 @@ import {
   Anchor,
   Box,
   Center,
+  CloseIcon,
   ColorSwatch,
   Divider,
   Drawer,
@@ -35,8 +36,9 @@ import {
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
 import { useState } from "react";
-import { useDisclosure } from "@mantine/hooks";
+import { useClickOutside, useDisclosure } from "@mantine/hooks";
 import { HeartIcon } from "@phosphor-icons/react/dist/ssr";
+import { beforeAll } from "vitest";
 
 const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   king: WHITE_PIECES.king,
@@ -153,6 +155,12 @@ export const Board = () => {
   const [targetPromotionSquare, setTargetPromotionSquare] =
     useState<SquareType>("a1");
 
+  const clickOutSideRef = useClickOutside(() => {
+    closePromotionPanel();
+    setSelectedPiece(null);
+    setGameState(GameState.SelectingPiece);
+  });
+
   const handleMove = (square: SquareType) => {
     const squareIndex = getSquareIndex(square);
 
@@ -191,15 +199,30 @@ export const Board = () => {
 
           // Board already handles the turns
           board.move(getSquareFromIndex(from), getSquareFromIndex(to));
+          setSelectedPiece(null);
+          setGameState(GameState.SelectingPiece);
+        } else {
+          // Toggle to an another piece if pressed
+          if (piece && piece.color === board.turn) {
+            // If its the same piece just toggle the state
+            if (selectedPiece && square === selectedPiece.position) {
+              setSelectedPiece(null);
+              setGameState(GameState.SelectingPiece);
+              setTargetSelections(0n);
+              break;
+            }
+            setSelectedPiece({ ...piece, position: square });
+            setFrom(squareIndex);
+            const selections = board.getLegalMovesFor(square);
+            setTargetSelections(selections);
+          } else {
+            setSelectedPiece(null);
+            setGameState(GameState.SelectingPiece);
+            setTargetSelections(0n);
+          }
         }
-
-        setSelectedPiece(null);
-        setGameState(GameState.SelectingPiece);
         break;
       }
-
-      default:
-        return;
     }
   };
 
@@ -214,7 +237,7 @@ export const Board = () => {
 
   return (
     <Stack gap={0} h="100vh" align="center" justify="center" pos="relative">
-      {promotionPanelOpened && (
+      {selectedPiece && promotionPanelOpened && (
         <Paper
           p="lg"
           withBorder
@@ -223,9 +246,10 @@ export const Board = () => {
           right={0}
           bg="dark"
           style={{ zIndex: 1 }}
+          ref={clickOutSideRef}
         >
           <Group>
-            {Object.entries(PROMOTION_PIECES[selectedPiece!.color]).map(
+            {Object.entries(PROMOTION_PIECES[selectedPiece.color]).map(
               ([pieceType, pieceImage]) => (
                 <Box
                   style={{ cursor: "pointer" }}
@@ -240,6 +264,19 @@ export const Board = () => {
                 </Box>
               ),
             )}
+            <Box
+              style={{ cursor: "pointer" }}
+              w={80}
+              bd="1px solid var(--mantine-color-dark-filled)"
+              key={`promotion-cancel`}
+              onClick={() => {
+                closePromotionPanel();
+                setSelectedPiece(null);
+                setGameState(GameState.SelectingPiece);
+              }}
+            >
+              <CloseIcon width="100%" color="red" />
+            </Box>
           </Group>
         </Paper>
       )}

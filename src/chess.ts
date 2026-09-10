@@ -162,6 +162,8 @@ export class Board {
     return this.whitePieces | this.blackPieces;
   }
 
+  private enPassantTarget: Square | null = null;
+
   getPieceAt(square: Square): Piece | undefined {
     const squareIndex = getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -332,7 +334,12 @@ export class Board {
     if ((squarePosition & startPositions) !== 0n) {
       const twoSquareMove =
         piece.color === "white" ? squarePosition << 16n : squarePosition >> 16n;
-      if ((twoSquareMove & this.occupied) === 0n)
+      if (
+        // Is the two-square-move square occupied by an another piece
+        (twoSquareMove & this.occupied) === 0n &&
+        // Don't allow two-square-move if the front square is occupied
+        (moveRays & this.occupied) === 0n
+      )
         finalPositions |= twoSquareMove;
     }
 
@@ -349,6 +356,30 @@ export class Board {
       piece.color === "white" ? this.blackPieces : this.whitePieces;
 
     finalPositions |= attackRays & opponentPieces;
+
+    if (!this.enPassantTarget) return finalPositions;
+
+    const fifthRank = piece.color === "white" ? RANK[5] : RANK[4];
+
+    const pieceLeftSquare =
+      piece.color === "white" ? squarePosition >> 1n : squarePosition << 1n;
+    const pieceRightSquare =
+      piece.color === "white" ? squarePosition << 1n : squarePosition >> 1n;
+    const pieceLeftUpSquare =
+      piece.color === "white" ? pieceLeftSquare << 8n : pieceLeftSquare >> 8n;
+    const pieceRightUpSquare =
+      piece.color === "white" ? pieceRightSquare << 8n : pieceRightSquare >> 8n;
+
+    const enPassantTarget = 1n << BigInt(getSquareIndex(this.enPassantTarget));
+
+    // Is the pawn on fifth rank?
+    if ((squarePosition & fifthRank) !== 0n) {
+      // if there's a pawn on enPassantTarget square add the one rank upper square to the moves
+      if ((pieceLeftSquare & enPassantTarget) !== 0n)
+        finalPositions |= pieceLeftUpSquare;
+      if ((pieceRightSquare & enPassantTarget) !== 0n)
+        finalPositions |= pieceRightUpSquare;
+    }
 
     return finalPositions;
   }
@@ -388,9 +419,28 @@ export class Board {
     // Is it a capture
     if ((toMask & opponentPieces) !== 0n) this.capture(toSquare, piece);
 
+    // Is it a two-square-pawn-move? If so enable en-passant moves for the opponent
+    const fromRank = parseInt(fromSquare[1]) as Rank;
+    const toRank = parseInt(toSquare[1]) as Rank;
+    if (piece.type === "pawn" && Math.abs(fromRank - toRank) === 2) {
+      this.enPassantTarget = toSquare;
+    }
+    // Othewise remove the en-passant moves
+    else {
+      this.enPassantTarget = null;
+    }
+
     // Remove the piece from "from position" and set it to "to position"
     bitboard &= ~fromMask;
     bitboard |= toMask;
+
+    // Is the moved piece a pawn and if it moves to an empty square always remove
+    // an opponent pawn behind the target square. (thanks to mattbatwings for this idea)
+    if (piece.type === "pawn" && (toMask & opponentPieces) === 0n) {
+      const oneBehind = piece.color === "white" ? toMask >> 8n : toMask << 8n;
+      this.bitboards[piece.color === "white" ? "black" : "white"].pawn &=
+        ~oneBehind;
+    }
 
     this.bitboards[piece.color][piece.type] = bitboard;
 
@@ -398,7 +448,7 @@ export class Board {
   }
 
   /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
-  private capture(targetSquare: Square, captuedBy: Piece) {
+  private capture(targetSquare: Square, capturedBy: Piece) {
     const targetBitboard = 1n << BigInt(getSquareIndex(targetSquare));
     const capturedPiece = this.getPieceAt(targetSquare);
     if (!capturedPiece) return;
@@ -408,7 +458,7 @@ export class Board {
     bitboard &= ~targetBitboard;
     this.bitboards[capturedPiece.color][capturedPiece.type] = bitboard;
 
-    this.captures[captuedBy.color][capturedPiece.type] += 1;
+    this.captures[capturedBy.color][capturedPiece.type] += 1;
   }
 
   promote(
