@@ -62,6 +62,7 @@ interface MoveFlags {
   kingSideRookMoved: boolean;
   queenSideRookMoved: boolean;
   kingMoved: boolean;
+  castled: boolean;
 }
 
 type PieceSet = Record<PieceType, BitBoard>;
@@ -97,11 +98,13 @@ export class Board {
       kingMoved: false,
       kingSideRookMoved: false,
       queenSideRookMoved: false,
+      castled: false,
     },
     white: {
       kingMoved: false,
       kingSideRookMoved: false,
       queenSideRookMoved: false,
+      castled: false,
     },
   };
 
@@ -118,18 +121,18 @@ export class Board {
     if (pieceColor === "white") {
       out.king = 1n << 4n;
       out.queen = 1n << 3n;
-      out.rook = (1n << 0n) + (1n << 7n);
-      out.bishop = (1n << 2n) + (1n << 5n);
-      out.knight = (1n << 1n) + (1n << 6n);
+      out.rook = (1n << 0n) | (1n << 7n);
+      out.bishop = (1n << 2n) | (1n << 5n);
+      out.knight = (1n << 1n) | (1n << 6n);
       out.pawn = RANK[2];
     } else {
       const last_row = 0x0100000000000000n;
 
       out.king = last_row << 4n;
       out.queen = last_row << 3n;
-      out.rook = (last_row << 0n) + (last_row << 7n);
-      out.bishop = (last_row << 2n) + (last_row << 5n);
-      out.knight = (last_row << 1n) + (last_row << 6n);
+      out.rook = (last_row << 0n) | (last_row << 7n);
+      out.bishop = (last_row << 2n) | (last_row << 5n);
+      out.knight = (last_row << 1n) | (last_row << 6n);
       out.pawn = RANK[7];
     }
 
@@ -394,15 +397,55 @@ export class Board {
       bottomLeft |
       bottomRight;
 
-    const selfPieces =
+    const teamPieces =
       piece.color === "white" ? this.whitePieces : this.blackPieces;
-    finalPositions &= ~selfPieces;
+    finalPositions &= ~teamPieces;
 
     if ((squarePosition & (FILE.A | FILE.B)) !== 0n)
       finalPositions &= ~(FILE.G | FILE.H);
-
     if ((squarePosition & (FILE.G | FILE.H)) !== 0n)
       finalPositions &= ~(FILE.A | FILE.B);
+
+    let castleMoves = 0n;
+    // Enable queen-side-castle if queen side rook is not moved AND there are no pieces in between squares
+    if (!this.moveFlags[piece.color].queenSideRookMoved) {
+      const squaresInBetween =
+        piece.color === "white"
+          ? (1n << BigInt(getSquareIndex("b1"))) |
+            (1n << BigInt(getSquareIndex("c1"))) |
+            (1n << BigInt(getSquareIndex("d1")))
+          : (1n << BigInt(getSquareIndex("b8"))) |
+            (1n << BigInt(getSquareIndex("c8"))) |
+            (1n << BigInt(getSquareIndex("d8")));
+
+      if ((this.occupied & squaresInBetween) === 0n) {
+        const longCastleMove =
+          piece.color === "white"
+            ? 1n << BigInt(getSquareIndex("c1"))
+            : 1n << BigInt(getSquareIndex("c8"));
+        castleMoves |= longCastleMove & ~teamPieces;
+      }
+    }
+    // Enable king-side-castle if king side rook is not moved AND there are no pieces in between squares
+    if (!this.moveFlags[piece.color].kingSideRookMoved) {
+      const squaresInBetween =
+        piece.color === "white"
+          ? (1n << BigInt(getSquareIndex("f1"))) |
+            (1n << BigInt(getSquareIndex("g1")))
+          : (1n << BigInt(getSquareIndex("f8"))) |
+            (1n << BigInt(getSquareIndex("g8")));
+
+      if ((this.occupied & squaresInBetween) === 0n) {
+        const shortCastleMove =
+          piece.color === "white"
+            ? 1n << BigInt(getSquareIndex("g1"))
+            : 1n << BigInt(getSquareIndex("g8"));
+        castleMoves |= shortCastleMove & ~teamPieces;
+      }
+    }
+
+    // TODO: Add a condition for king check add the castle moves based on the condition
+    finalPositions |= castleMoves;
 
     // In case some there might be a move offboard
     finalPositions &= ALL_SQUARES;
@@ -433,9 +476,9 @@ export class Board {
       down_2Left |
       down_2Right;
 
-    const selfPieces =
+    const teamPieces =
       piece.color === "white" ? this.whitePieces : this.blackPieces;
-    finalPositions &= ~selfPieces;
+    finalPositions &= ~teamPieces;
 
     if ((squarePosition & (FILE.A | FILE.B)) !== 0n)
       finalPositions &= ~(FILE.G | FILE.H);
@@ -584,14 +627,50 @@ export class Board {
 
     // Is the moved piece a pawn and if it moves to an empty square always remove
     // an opponent pawn behind the target square. (thanks to mattbatwings for this idea)
-    if (piece.type === "pawn" && (toMask & opponentPieces) === 0n) {
+    if (
+      piece.type === "pawn" &&
+      fromSquare[0] !== toSquare[0] && // diagonal move
+      (toMask & opponentPieces) === 0n // landed on empty square
+    ) {
       const oneBehind = piece.color === "white" ? -1 : 1;
-
       const oneBehindSquare =
         `${toSquare[0]}${parseInt(toSquare[1]) + oneBehind}` as Square;
-
       this.capture(oneBehindSquare, piece);
-      //this.bitboards[opponent].pawn &= ~oneBehind;
+    }
+
+    if (piece.type === "king") {
+      this.moveFlags[piece.color].kingMoved = true;
+    }
+
+    const isCastleMove =
+      piece.type === "king" &&
+      Math.abs(fromSquare.charCodeAt(0) - toSquare.charCodeAt(0)) === 2;
+
+    if (isCastleMove) {
+      const rank = fromSquare[1];
+      const isKingSide = toSquare.charCodeAt(0) > fromSquare.charCodeAt(0);
+
+      const rookFromSquare = `${isKingSide ? "h" : "a"}${rank}` as Square;
+      const rookToSquare = `${isKingSide ? "f" : "d"}${rank}` as Square;
+
+      const rookFromMask = 1n << BigInt(getSquareIndex(rookFromSquare));
+      const rookToMask = 1n << BigInt(getSquareIndex(rookToSquare));
+
+      let rookBitboard = this.bitboards[piece.color].rook;
+      rookBitboard = (rookBitboard & ~rookFromMask) | rookToMask;
+      this.bitboards[piece.color].rook = rookBitboard;
+
+      this.moveFlags[piece.color].kingSideRookMoved = true;
+      this.moveFlags[piece.color].queenSideRookMoved = true;
+    }
+
+    const kingSideCorners = (1n << BigInt(7)) | (1n << BigInt(63));
+    const queenSideCorners = (1n << BigInt(0)) | (1n << BigInt(56));
+    if (piece.type === "rook") {
+      if ((fromMask & kingSideCorners) !== 0n)
+        this.moveFlags[piece.color].kingSideRookMoved = true;
+      if ((fromMask & queenSideCorners) !== 0n)
+        this.moveFlags[piece.color].queenSideRookMoved = true;
     }
 
     this.bitboards[piece.color][piece.type] = bitboard;
