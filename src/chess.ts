@@ -58,6 +58,12 @@ export type PieceType =
 
 export type PromotionPieceType = "queen" | "rook" | "bishop" | "knight";
 
+interface MoveFlags {
+  kingSideRookMoved: boolean;
+  queenSideRookMoved: boolean;
+  kingMoved: boolean;
+}
+
 type PieceSet = Record<PieceType, BitBoard>;
 
 const ALL_SQUARES = 0xff_ff_ff_ff_ff_ff_ff_ffn;
@@ -85,6 +91,20 @@ export const FILE = {
 } as const;
 
 export class Board {
+  private enPassantTarget: Square | null = null;
+  private moveFlags: Record<ChessColor, MoveFlags> = {
+    black: {
+      kingMoved: false,
+      kingSideRookMoved: false,
+      queenSideRookMoved: false,
+    },
+    white: {
+      kingMoved: false,
+      kingSideRookMoved: false,
+      queenSideRookMoved: false,
+    },
+  };
+
   static setupPiecesFor(pieceColor: ChessColor): PieceSet {
     const out: PieceSet = {
       king: 0n,
@@ -162,8 +182,6 @@ export class Board {
     return this.whitePieces | this.blackPieces;
   }
 
-  private enPassantTarget: Square | null = null;
-
   getPieceAt(square: Square): Piece | undefined {
     const squareIndex = getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -237,12 +255,119 @@ export class Board {
         return this.getLegalKingMoves(squareIndex, piece);
       case "knight":
         return this.getLegalKnightMoves(squareIndex, piece);
+      case "bishop":
+        return this.getLegalBishopMoves(squareIndex, piece);
+      case "rook":
+        return this.getLegalRookMoves(squareIndex, piece);
+      case "queen":
+        return (
+          this.getLegalRookMoves(squareIndex, piece) |
+          this.getLegalBishopMoves(squareIndex, piece)
+        );
       default: {
         const piecePosition = 1n << BigInt(squareIndex);
         // All squares. For debugging only
         return ALL_SQUARES & ~piecePosition;
       }
     }
+  }
+
+  private getLegalBishopMoves(squareIndex: number, piece: Piece): BitBoard {
+    const squarePosition = 1n << BigInt(squareIndex);
+    let finalPositions = 0n;
+
+    // From white's perspective. In gameplay this directions switched for black
+    let dirUpLeft = squarePosition,
+      dirUpRight = squarePosition,
+      dirDownLeft = squarePosition,
+      dirDownRight = squarePosition;
+
+    const teamPieces =
+      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const opponentPieces =
+      piece.color === "white" ? this.blackPieces : this.whitePieces;
+
+    while ((dirUpLeft & (RANK[8] | FILE.A)) === 0n) {
+      const next = dirUpLeft << (8n - 1n);
+      if ((next & teamPieces) !== 0n) break;
+      dirUpLeft |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirUpRight & (RANK[8] | FILE.H)) === 0n) {
+      const next = dirUpRight << (8n + 1n);
+      if ((next & teamPieces) !== 0n) break;
+      dirUpRight |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirDownLeft & (RANK[1] | FILE.A)) === 0n) {
+      const next = dirDownLeft >> (8n + 1n);
+      if ((next & teamPieces) !== 0n) break;
+      dirDownLeft |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirDownRight & (RANK[1] | FILE.H)) === 0n) {
+      const next = dirDownRight >> (8n - 1n);
+      if ((next & teamPieces) !== 0n) break;
+      dirDownRight |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+
+    finalPositions |= dirUpLeft | dirUpRight | dirDownLeft | dirDownRight;
+    finalPositions &= ~squarePosition;
+
+    // In case some there might be a move offboard
+    finalPositions &= ALL_SQUARES;
+
+    return finalPositions;
+  }
+
+  private getLegalRookMoves(squareIndex: number, piece: Piece): BitBoard {
+    const squarePosition = 1n << BigInt(squareIndex);
+    let finalPositions = 0n;
+
+    // From white's perspective. In gameplay this directions switched for black
+    let dirUp = squarePosition,
+      dirDown = squarePosition,
+      dirLeft = squarePosition,
+      dirRight = squarePosition;
+
+    const teamPieces =
+      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const opponentPieces =
+      piece.color === "white" ? this.blackPieces : this.whitePieces;
+
+    while ((dirUp & RANK[8]) === 0n) {
+      const next = dirUp << 8n;
+      if ((next & teamPieces) !== 0n) break;
+      dirUp |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirDown & RANK[1]) === 0n) {
+      const next = dirDown >> 8n;
+      if ((next & teamPieces) !== 0n) break;
+      dirDown |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirRight & FILE.H) === 0n) {
+      const next = dirRight << 1n;
+      if ((next & teamPieces) !== 0n) break;
+      dirRight |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+    while ((dirLeft & FILE.A) === 0n) {
+      const next = dirLeft >> 1n;
+      if ((next & teamPieces) !== 0n) break;
+      dirLeft |= next;
+      if ((next & opponentPieces) !== 0n) break;
+    }
+
+    finalPositions |= dirUp | dirDown | dirRight | dirLeft;
+    finalPositions &= ~squarePosition;
+
+    // In case some there might be a move offboard
+    finalPositions &= ALL_SQUARES;
+
+    return finalPositions;
   }
 
   private getLegalKingMoves(squareIndex: number, piece: Piece): BitBoard {
@@ -279,6 +404,9 @@ export class Board {
     if ((squarePosition & (FILE.G | FILE.H)) !== 0n)
       finalPositions &= ~(FILE.A | FILE.B);
 
+    // In case some there might be a move offboard
+    finalPositions &= ALL_SQUARES;
+
     return finalPositions;
   }
 
@@ -313,6 +441,9 @@ export class Board {
       finalPositions &= ~(FILE.G | FILE.H);
     if ((squarePosition & (FILE.G | FILE.H)) !== 0n)
       finalPositions &= ~(FILE.A | FILE.B);
+
+    // In case some there might be a move offboard
+    finalPositions &= ALL_SQUARES;
 
     return finalPositions;
   }
@@ -381,12 +512,29 @@ export class Board {
         finalPositions |= pieceRightUpSquare;
     }
 
+    // In case some there might be a move offboard
+    finalPositions &= ALL_SQUARES;
+
     return finalPositions;
   }
 
   private toggleTurn() {
     if (this.turn === "white") this.turn = "black";
     else this.turn = "white";
+  }
+
+  /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
+  private capture(targetSquare: Square, capturedBy: Piece) {
+    const targetBitboard = 1n << BigInt(getSquareIndex(targetSquare));
+    const capturedPiece = this.getPieceAt(targetSquare);
+    if (!capturedPiece) return;
+
+    let bitboard = this.bitboards[capturedPiece.color][capturedPiece.type];
+    // Clear the target bit on the target bitboard
+    bitboard &= ~targetBitboard;
+    this.bitboards[capturedPiece.color][capturedPiece.type] = bitboard;
+
+    this.captures[capturedBy.color][capturedPiece.type] += 1;
   }
 
   clear(square: Square) {
@@ -437,28 +585,18 @@ export class Board {
     // Is the moved piece a pawn and if it moves to an empty square always remove
     // an opponent pawn behind the target square. (thanks to mattbatwings for this idea)
     if (piece.type === "pawn" && (toMask & opponentPieces) === 0n) {
-      const oneBehind = piece.color === "white" ? toMask >> 8n : toMask << 8n;
-      this.bitboards[piece.color === "white" ? "black" : "white"].pawn &=
-        ~oneBehind;
+      const oneBehind = piece.color === "white" ? -1 : 1;
+
+      const oneBehindSquare =
+        `${toSquare[0]}${parseInt(toSquare[1]) + oneBehind}` as Square;
+
+      this.capture(oneBehindSquare, piece);
+      //this.bitboards[opponent].pawn &= ~oneBehind;
     }
 
     this.bitboards[piece.color][piece.type] = bitboard;
 
     this.toggleTurn();
-  }
-
-  /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
-  private capture(targetSquare: Square, capturedBy: Piece) {
-    const targetBitboard = 1n << BigInt(getSquareIndex(targetSquare));
-    const capturedPiece = this.getPieceAt(targetSquare);
-    if (!capturedPiece) return;
-
-    let bitboard = this.bitboards[capturedPiece.color][capturedPiece.type];
-    // Clear the target bit on the target bitboard
-    bitboard &= ~targetBitboard;
-    this.bitboards[capturedPiece.color][capturedPiece.type] = bitboard;
-
-    this.captures[capturedBy.color][capturedPiece.type] += 1;
   }
 
   promote(
@@ -484,6 +622,7 @@ export class Board {
     this.bitboards[pieceToPromote.color].pawn &= ~piecePosition;
 
     pieceSet[to] |= squareBitboard;
+    this.enPassantTarget = null;
     this.toggleTurn();
   }
 }
