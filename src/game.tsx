@@ -38,7 +38,6 @@ import { GameState, useGameCtx } from "./game-context";
 import { useState } from "react";
 import { useClickOutside, useDisclosure } from "@mantine/hooks";
 import { HeartIcon } from "@phosphor-icons/react/dist/ssr";
-import { beforeAll } from "vitest";
 
 const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   king: WHITE_PIECES.king,
@@ -142,7 +141,7 @@ const BOARD_COLORS: Readonly<boolean[][]> = [
 ];
 
 export const Board = () => {
-  const { board, settings, state, setGameState } = useGameCtx();
+  const { chess, settings, state, setGameState } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
   const [from, setFrom] = useState(0);
   const [selectedPiece, setSelectedPiece] = useState<PieceWithPosition | null>(
@@ -164,17 +163,17 @@ export const Board = () => {
   const handleMove = (square: SquareType) => {
     const squareIndex = getSquareIndex(square);
 
-    const piece = board.getPieceAt(square);
+    const piece = chess.getPieceAt(square);
 
     switch (state) {
       case GameState.SelectingPiece: {
         if (!piece) return;
-        if (piece.color !== board.turn) return;
+        if (piece.color !== chess.turn) return;
 
         setSelectedPiece({ ...piece, position: square });
         setFrom(squareIndex);
         setGameState(GameState.SelectingTarget);
-        const selections = board.getLegalMovesFor(square);
+        const selections = chess.getLegalMovesFor(square);
         setTargetSelections(selections);
         break;
       }
@@ -198,12 +197,12 @@ export const Board = () => {
           }
 
           // Board already handles the turns
-          board.move(getSquareFromIndex(from), getSquareFromIndex(to));
+          chess.move(getSquareFromIndex(from), getSquareFromIndex(to));
           setSelectedPiece(null);
           setGameState(GameState.SelectingPiece);
         } else {
           // Toggle to an another piece if pressed
-          if (piece && piece.color === board.turn) {
+          if (piece && piece.color === chess.turn) {
             // If its the same piece just toggle the state
             if (selectedPiece && square === selectedPiece.position) {
               setSelectedPiece(null);
@@ -213,7 +212,7 @@ export const Board = () => {
             }
             setSelectedPiece({ ...piece, position: square });
             setFrom(squareIndex);
-            const selections = board.getLegalMovesFor(square);
+            const selections = chess.getLegalMovesFor(square);
             setTargetSelections(selections);
           } else {
             setSelectedPiece(null);
@@ -229,7 +228,7 @@ export const Board = () => {
   const handlePromotion = (promoteTo: PromotionPieceType) => {
     const pieceToPromote = selectedPiece;
     if (!pieceToPromote) throw new Error("Cannot promote an undefined piece");
-    board.promote(promoteTo, pieceToPromote, targetPromotionSquare);
+    chess.promote(promoteTo, pieceToPromote, targetPromotionSquare);
     setSelectedPiece(null);
     setGameState(GameState.SelectingPiece);
     closePromotionPanel();
@@ -306,7 +305,7 @@ export const Board = () => {
                 color={settings.boardTheme}
                 key={`square-${square}`}
                 size={settings.boardSize}
-                piece={board.getPieceAt(square)}
+                piece={chess.getPieceAt(square)}
                 squareColor={isWhite ? "white" : "black"}
                 onCellClick={() => handleMove(square)}
               />

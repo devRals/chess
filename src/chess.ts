@@ -91,23 +91,10 @@ export const FILE = {
   H: 0x80_80_80_80_80_80_80_80n,
 } as const;
 
-export class Board {
-  private enPassantTarget: Square | null = null;
-  private moveFlags: Record<ChessColor, MoveFlags> = {
-    black: {
-      kingMoved: false,
-      kingSideRookMoved: false,
-      queenSideRookMoved: false,
-      castled: false,
-    },
-    white: {
-      kingMoved: false,
-      kingSideRookMoved: false,
-      queenSideRookMoved: false,
-      castled: false,
-    },
-  };
+export const oppositeColor = (color: ChessColor): ChessColor =>
+  color === "white" ? "black" : "white";
 
+export class Chess {
   static setupPiecesFor(pieceColor: ChessColor): PieceSet {
     const out: PieceSet = {
       king: 0n,
@@ -139,9 +126,25 @@ export class Board {
     return out;
   }
 
+  enPassantTarget: Square | null = null;
+  moveFlags: Record<ChessColor, MoveFlags> = {
+    black: {
+      kingMoved: false,
+      kingSideRookMoved: false,
+      queenSideRookMoved: false,
+      castled: false,
+    },
+    white: {
+      kingMoved: false,
+      kingSideRookMoved: false,
+      queenSideRookMoved: false,
+      castled: false,
+    },
+  };
+
   bitboards: Record<ChessColor, PieceSet> = {
-    black: Board.setupPiecesFor("black"),
-    white: Board.setupPiecesFor("white"),
+    black: Chess.setupPiecesFor("black"),
+    white: Chess.setupPiecesFor("white"),
   };
 
   turn: ChessColor = "white";
@@ -218,32 +221,122 @@ export class Board {
     return undefined;
   }
 
-  reset() {
-    this.turn = "white";
+  getAttackedSquaresFor(color: ChessColor): BitBoard {
+    let out: BitBoard = 0n;
+    const allFiles: File[] = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const allRanks: Rank[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
-    this.bitboards = {
-      black: Board.setupPiecesFor("black"),
-      white: Board.setupPiecesFor("white"),
+    for (const file of allFiles) {
+      for (const rank of allRanks) {
+        const square = `${file}${rank}` as Square;
+
+        const piece = this.getPieceAt(square);
+        if (!piece) continue;
+        if (piece.color !== color) continue;
+        out |= this.getAttacksFor(square);
+      }
+    }
+
+    return out;
+  }
+
+  getAttacksFor(square: Square): BitBoard {
+    const squareIndex = getSquareIndex(square);
+    const piece = this.getPieceAt(square);
+    if (!piece) return 0x0n;
+
+    type AttackFunction = (squareIndex: number, color: ChessColor) => BitBoard;
+    // Javascript is really is stupid
+    const attacksMap: Record<PieceType, AttackFunction> = {
+      pawn: (i, c) => this.getPawnAttacks(i, c),
+      king: (i, c) => this.getKingAttacks(i, c),
+      knight: (i, c) => this.getKnightAttacks(i, c),
+      rook: (i, c) => this.getRookAttacks(i, c),
+      bishop: (i, c) => this.getBishopAttacks(i, c),
+      queen: (i, c) => this.getQueenAttacks(i, c),
     };
 
-    this.captures = {
-      black: {
-        king: 0,
-        queen: 0,
-        rook: 0,
-        bishop: 0,
-        knight: 0,
-        pawn: 0,
-      },
-      white: {
-        king: 0,
-        queen: 0,
-        rook: 0,
-        bishop: 0,
-        knight: 0,
-        pawn: 0,
-      },
-    };
+    return attacksMap[piece.type](squareIndex, piece.color);
+  }
+
+  getKingAttacks(squareIndex: number, color: ChessColor): BitBoard {
+    const squarePosition = 1n << BigInt(squareIndex);
+
+    let finalAttacks = 0n;
+
+    const top = squarePosition << 8n,
+      bottom = squarePosition >> 8n,
+      left = squarePosition >> 1n,
+      right = squarePosition << 1n,
+      topLeft = squarePosition << (8n - 1n),
+      topRight = squarePosition << (8n + 1n),
+      bottomRight = squarePosition >> (8n - 1n),
+      bottomLeft = squarePosition >> (8n + 1n);
+
+    finalAttacks =
+      top |
+      bottom |
+      left |
+      right |
+      topLeft |
+      topRight |
+      bottomLeft |
+      bottomRight;
+
+    const teamPieces = color === "white" ? this.whitePieces : this.blackPieces;
+    finalAttacks &= ~teamPieces;
+
+    if ((squarePosition & (FILE.A | FILE.B)) !== 0n)
+      finalAttacks &= ~(FILE.G | FILE.H);
+    if ((squarePosition & (FILE.G | FILE.H)) !== 0n)
+      finalAttacks &= ~(FILE.A | FILE.B);
+
+    return finalAttacks;
+  }
+
+  getQueenAttacks(squareIndex: number, color: ChessColor): BitBoard {
+    return (
+      this.getBishopAttacks(squareIndex, color) |
+      this.getRookAttacks(squareIndex, color)
+    );
+  }
+
+  getBishopAttacks(squareIndex: number, color: ChessColor): BitBoard {
+    const opponentPieces = this.bitboards[oppositeColor(color)];
+    const kingMask = opponentPieces.king;
+    // "See through" king
+    opponentPieces.king &= ~kingMask;
+    const attacks = this.getLegalBishopMoves(squareIndex, color, true);
+    opponentPieces.king |= kingMask;
+    return attacks;
+  }
+
+  getRookAttacks(squareIndex: number, color: ChessColor): BitBoard {
+    const opponentPieces = this.bitboards[oppositeColor(color)];
+    const kingMask = opponentPieces.king;
+    // "See through" king
+    opponentPieces.king &= ~kingMask;
+    const attacks = this.getLegalRookMoves(squareIndex, color, true);
+    opponentPieces.king |= kingMask;
+    return attacks;
+  }
+
+  getPawnAttacks(squareIndex: number, color: ChessColor): BitBoard {
+    const squarePosition = 1n << BigInt(squareIndex);
+
+    let attackRays =
+      color === "white"
+        ? (squarePosition << (8n + 1n)) + (squarePosition << (8n - 1n))
+        : (squarePosition >> (8n + 1n)) + (squarePosition >> (8n - 1n));
+
+    // Remove the moves that goes out of the board
+    if ((squarePosition & FILE.H) !== 0n) attackRays &= ~FILE.A;
+    if ((squarePosition & FILE.A) !== 0n) attackRays &= ~FILE.H;
+    return attackRays;
+  }
+
+  getKnightAttacks(squareIndex: number, color: ChessColor) {
+    return this.getLegalKnightMoves(squareIndex, color);
   }
 
   getLegalMovesFor(square: Square): BitBoard {
@@ -251,31 +344,36 @@ export class Board {
     const piece = this.getPieceAt(square);
     if (!piece) return 0x0n;
 
-    switch (piece.type) {
-      case "pawn":
-        return this.getLegalPawnMoves(squareIndex, piece);
-      case "king":
-        return this.getLegalKingMoves(squareIndex, piece);
-      case "knight":
-        return this.getLegalKnightMoves(squareIndex, piece);
-      case "bishop":
-        return this.getLegalBishopMoves(squareIndex, piece);
-      case "rook":
-        return this.getLegalRookMoves(squareIndex, piece);
-      case "queen":
-        return (
-          this.getLegalRookMoves(squareIndex, piece) |
-          this.getLegalBishopMoves(squareIndex, piece)
-        );
-      default: {
-        const piecePosition = 1n << BigInt(squareIndex);
-        // All squares. For debugging only
-        return ALL_SQUARES & ~piecePosition;
-      }
-    }
+    type LegalMoveFunction = (
+      squareIndex: number,
+      color: ChessColor,
+    ) => BitBoard;
+    // Javascript is kinda stupid
+    const legalMoveMap: Record<PieceType, LegalMoveFunction> = {
+      pawn: (i, c) => this.getLegalPawnMoves(i, c),
+      king: (i, c) => this.getLegalKingMoves(i, c),
+      queen: (i, c) => this.getLegalQueenMoves(i, c),
+      rook: (i, c) => this.getLegalRookMoves(i, c),
+      bishop: (i, c) => this.getLegalBishopMoves(i, c),
+      knight: (i, c) => this.getLegalKnightMoves(i, c),
+    };
+
+    return legalMoveMap[piece.type](squareIndex, piece.color);
   }
 
-  private getLegalBishopMoves(squareIndex: number, piece: Piece): BitBoard {
+  getLegalQueenMoves(squareIndex: number, color: ChessColor): BitBoard {
+    return (
+      this.getLegalRookMoves(squareIndex, color) |
+      this.getLegalBishopMoves(squareIndex, color)
+    );
+  }
+
+  getLegalBishopMoves(
+    squareIndex: number,
+    color: ChessColor,
+    /** use it when bishop moves needs to include first team piece to the moves */
+    includeTeamPiece: boolean = false,
+  ): BitBoard {
     const squarePosition = 1n << BigInt(squareIndex);
     let finalPositions = 0n;
 
@@ -285,33 +383,52 @@ export class Board {
       dirDownLeft = squarePosition,
       dirDownRight = squarePosition;
 
-    const teamPieces =
-      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const teamPieces = color === "white" ? this.whitePieces : this.blackPieces;
     const opponentPieces =
-      piece.color === "white" ? this.blackPieces : this.whitePieces;
+      color === "white" ? this.blackPieces : this.whitePieces;
 
     while ((dirUpLeft & (RANK[8] | FILE.A)) === 0n) {
       const next = dirUpLeft << (8n - 1n);
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirUpLeft |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirUpRight & (RANK[8] | FILE.H)) === 0n) {
       const next = dirUpRight << (8n + 1n);
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirUpRight |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirDownLeft & (RANK[1] | FILE.A)) === 0n) {
       const next = dirDownLeft >> (8n + 1n);
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirDownLeft |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirDownRight & (RANK[1] | FILE.H)) === 0n) {
       const next = dirDownRight >> (8n - 1n);
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirDownRight |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
 
@@ -324,7 +441,12 @@ export class Board {
     return finalPositions;
   }
 
-  private getLegalRookMoves(squareIndex: number, piece: Piece): BitBoard {
+  getLegalRookMoves(
+    squareIndex: number,
+    color: ChessColor,
+    /** use it when rook moves needs to include first team piece to the moves */
+    includeTeamPiece: boolean = false,
+  ): BitBoard {
     const squarePosition = 1n << BigInt(squareIndex);
     let finalPositions = 0n;
 
@@ -334,33 +456,52 @@ export class Board {
       dirLeft = squarePosition,
       dirRight = squarePosition;
 
-    const teamPieces =
-      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const teamPieces = color === "white" ? this.whitePieces : this.blackPieces;
     const opponentPieces =
-      piece.color === "white" ? this.blackPieces : this.whitePieces;
+      color === "white" ? this.blackPieces : this.whitePieces;
 
     while ((dirUp & RANK[8]) === 0n) {
       const next = dirUp << 8n;
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirUp |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirDown & RANK[1]) === 0n) {
       const next = dirDown >> 8n;
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirDown |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirRight & FILE.H) === 0n) {
       const next = dirRight << 1n;
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirRight |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
     while ((dirLeft & FILE.A) === 0n) {
       const next = dirLeft >> 1n;
-      if ((next & teamPieces) !== 0n) break;
+      if (!includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       dirLeft |= next;
+      if (includeTeamPiece) {
+        if ((next & teamPieces) !== 0n) break;
+      }
       if ((next & opponentPieces) !== 0n) break;
     }
 
@@ -373,7 +514,7 @@ export class Board {
     return finalPositions;
   }
 
-  private getLegalKingMoves(squareIndex: number, piece: Piece): BitBoard {
+  getLegalKingMoves(squareIndex: number, color: ChessColor): BitBoard {
     const squarePosition = 1n << BigInt(squareIndex);
 
     let finalPositions = 0n;
@@ -397,8 +538,7 @@ export class Board {
       bottomLeft |
       bottomRight;
 
-    const teamPieces =
-      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const teamPieces = color === "white" ? this.whitePieces : this.blackPieces;
     finalPositions &= ~teamPieces;
 
     if ((squarePosition & (FILE.A | FILE.B)) !== 0n)
@@ -407,10 +547,17 @@ export class Board {
       finalPositions &= ~(FILE.A | FILE.B);
 
     let castleMoves = 0n;
+    const { castled, kingMoved, kingSideRookMoved, queenSideRookMoved } = {
+      castled: this.moveFlags[color].castled,
+      kingMoved: this.moveFlags[color].kingMoved,
+      kingSideRookMoved: this.moveFlags[color].kingSideRookMoved,
+      queenSideRookMoved: this.moveFlags[color].queenSideRookMoved,
+    };
+
     // Enable queen-side-castle if queen side rook is not moved AND there are no pieces in between squares
-    if (!this.moveFlags[piece.color].queenSideRookMoved) {
+    if (!queenSideRookMoved && !kingMoved && !castled) {
       const squaresInBetween =
-        piece.color === "white"
+        color === "white"
           ? (1n << BigInt(getSquareIndex("b1"))) |
             (1n << BigInt(getSquareIndex("c1"))) |
             (1n << BigInt(getSquareIndex("d1")))
@@ -420,16 +567,16 @@ export class Board {
 
       if ((this.occupied & squaresInBetween) === 0n) {
         const longCastleMove =
-          piece.color === "white"
+          color === "white"
             ? 1n << BigInt(getSquareIndex("c1"))
             : 1n << BigInt(getSquareIndex("c8"));
         castleMoves |= longCastleMove & ~teamPieces;
       }
     }
     // Enable king-side-castle if king side rook is not moved AND there are no pieces in between squares
-    if (!this.moveFlags[piece.color].kingSideRookMoved) {
+    if (!kingSideRookMoved && !kingMoved && !castled) {
       const squaresInBetween =
-        piece.color === "white"
+        color === "white"
           ? (1n << BigInt(getSquareIndex("f1"))) |
             (1n << BigInt(getSquareIndex("g1")))
           : (1n << BigInt(getSquareIndex("f8"))) |
@@ -437,15 +584,20 @@ export class Board {
 
       if ((this.occupied & squaresInBetween) === 0n) {
         const shortCastleMove =
-          piece.color === "white"
+          color === "white"
             ? 1n << BigInt(getSquareIndex("g1"))
             : 1n << BigInt(getSquareIndex("g8"));
         castleMoves |= shortCastleMove & ~teamPieces;
       }
     }
 
-    // TODO: Add a condition for king check add the castle moves based on the condition
-    finalPositions |= castleMoves;
+    if (!this.inCheck(color)) {
+      finalPositions |= castleMoves;
+    }
+
+    const opponent = color === "white" ? "black" : "white";
+    const attackedSquares = this.getAttackedSquaresFor(opponent);
+    finalPositions &= ~attackedSquares;
 
     // In case some there might be a move offboard
     finalPositions &= ALL_SQUARES;
@@ -453,7 +605,7 @@ export class Board {
     return finalPositions;
   }
 
-  private getLegalKnightMoves(squareIndex: number, piece: Piece): BitBoard {
+  getLegalKnightMoves(squareIndex: number, color: ChessColor): BitBoard {
     const squarePosition = 1n << BigInt(squareIndex);
     let finalPositions = 0n;
 
@@ -476,8 +628,7 @@ export class Board {
       down_2Left |
       down_2Right;
 
-    const teamPieces =
-      piece.color === "white" ? this.whitePieces : this.blackPieces;
+    const teamPieces = color === "white" ? this.whitePieces : this.blackPieces;
     finalPositions &= ~teamPieces;
 
     if ((squarePosition & (FILE.A | FILE.B)) !== 0n)
@@ -491,23 +642,23 @@ export class Board {
     return finalPositions;
   }
 
-  private getLegalPawnMoves(squareIndex: number, piece: Piece): BitBoard {
+  getLegalPawnMoves(squareIndex: number, color: ChessColor): BitBoard {
     const squarePosition = 1n << BigInt(squareIndex);
 
     let finalPositions = 0n;
 
     let moveRays =
-      piece.color === "white" ? squarePosition << 8n : squarePosition >> 8n;
+      color === "white" ? squarePosition << 8n : squarePosition >> 8n;
 
     // If the ray doesnt conflict with the opponentPieces add to the final positions
     if ((moveRays & this.occupied) === 0n) finalPositions |= moveRays;
 
-    const startPositions = piece.color === "white" ? RANK[2] : RANK[7];
+    const startPositions = color === "white" ? RANK[2] : RANK[7];
 
     // Is pawn in the start position. If so add an external square forward to move rays
     if ((squarePosition & startPositions) !== 0n) {
       const twoSquareMove =
-        piece.color === "white" ? squarePosition << 16n : squarePosition >> 16n;
+        color === "white" ? squarePosition << 16n : squarePosition >> 16n;
       if (
         // Is the two-square-move square occupied by an another piece
         (twoSquareMove & this.occupied) === 0n &&
@@ -517,32 +668,25 @@ export class Board {
         finalPositions |= twoSquareMove;
     }
 
-    let attackRays =
-      piece.color === "white"
-        ? (squarePosition << (8n + 1n)) + (squarePosition << (8n - 1n))
-        : (squarePosition >> (8n + 1n)) + (squarePosition >> (8n - 1n));
-
-    // Remove the moves that goes out of the board
-    if ((squarePosition & FILE.H) !== 0n) attackRays &= ~FILE.A;
-    if ((squarePosition & FILE.A) !== 0n) attackRays &= ~FILE.H;
+    let attackRays = this.getPawnAttacks(squareIndex, color);
 
     const opponentPieces =
-      piece.color === "white" ? this.blackPieces : this.whitePieces;
+      color === "white" ? this.blackPieces : this.whitePieces;
 
     finalPositions |= attackRays & opponentPieces;
 
     if (!this.enPassantTarget) return finalPositions;
 
-    const fifthRank = piece.color === "white" ? RANK[5] : RANK[4];
+    const fifthRank = color === "white" ? RANK[5] : RANK[4];
 
     const pieceLeftSquare =
-      piece.color === "white" ? squarePosition >> 1n : squarePosition << 1n;
+      color === "white" ? squarePosition >> 1n : squarePosition << 1n;
     const pieceRightSquare =
-      piece.color === "white" ? squarePosition << 1n : squarePosition >> 1n;
+      color === "white" ? squarePosition << 1n : squarePosition >> 1n;
     const pieceLeftUpSquare =
-      piece.color === "white" ? pieceLeftSquare << 8n : pieceLeftSquare >> 8n;
+      color === "white" ? pieceLeftSquare << 8n : pieceLeftSquare >> 8n;
     const pieceRightUpSquare =
-      piece.color === "white" ? pieceRightSquare << 8n : pieceRightSquare >> 8n;
+      color === "white" ? pieceRightSquare << 8n : pieceRightSquare >> 8n;
 
     const enPassantTarget = 1n << BigInt(getSquareIndex(this.enPassantTarget));
 
@@ -561,13 +705,13 @@ export class Board {
     return finalPositions;
   }
 
-  private toggleTurn() {
+  toggleTurn() {
     if (this.turn === "white") this.turn = "black";
     else this.turn = "white";
   }
 
   /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
-  private capture(targetSquare: Square, capturedBy: Piece) {
+  capture(targetSquare: Square, capturedBy: Piece) {
     const targetBitboard = 1n << BigInt(getSquareIndex(targetSquare));
     const capturedPiece = this.getPieceAt(targetSquare);
     if (!capturedPiece) return;
@@ -662,6 +806,7 @@ export class Board {
 
       this.moveFlags[piece.color].kingSideRookMoved = true;
       this.moveFlags[piece.color].queenSideRookMoved = true;
+      this.moveFlags[piece.color].castled = true;
     }
 
     const kingSideCorners = (1n << BigInt(7)) | (1n << BigInt(63));
@@ -703,5 +848,56 @@ export class Board {
     pieceSet[to] |= squareBitboard;
     this.enPassantTarget = null;
     this.toggleTurn();
+  }
+
+  reset() {
+    this.turn = "white";
+
+    this.bitboards = {
+      black: Chess.setupPiecesFor("black"),
+      white: Chess.setupPiecesFor("white"),
+    };
+
+    this.enPassantTarget = null;
+    this.moveFlags = {
+      black: {
+        castled: false,
+        kingSideRookMoved: false,
+        queenSideRookMoved: false,
+        kingMoved: false,
+      },
+      white: {
+        castled: false,
+        kingSideRookMoved: false,
+        queenSideRookMoved: false,
+        kingMoved: false,
+      },
+    };
+
+    this.captures = {
+      black: {
+        king: 0,
+        queen: 0,
+        rook: 0,
+        bishop: 0,
+        knight: 0,
+        pawn: 0,
+      },
+      white: {
+        king: 0,
+        queen: 0,
+        rook: 0,
+        bishop: 0,
+        knight: 0,
+        pawn: 0,
+      },
+    };
+  }
+
+  inCheck(color: ChessColor): boolean {
+    const opponent = oppositeColor(color);
+    const attackedSquares = this.getAttackedSquaresFor(opponent);
+
+    return (attackedSquares & this.bitboards[color].king) !== 0n;
   }
 }

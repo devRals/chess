@@ -1,6 +1,6 @@
 import { createContext, use, useEffect, useRef, useState } from "react";
 import Game from "./game";
-import { Board } from "./chess";
+import { Chess } from "./chess";
 import { type MantineColor } from "@mantine/core";
 
 interface GameSettings {
@@ -16,7 +16,7 @@ export enum GameState {
 
 interface GameContext {
   state: GameState;
-  board: Board;
+  chess: Chess;
   settings: GameSettings;
   setSettings: (
     newSettings: GameSettings | ((old: GameSettings) => GameSettings),
@@ -29,7 +29,7 @@ const GameCtx = createContext<GameContext | null>(null);
 const DEFAULT_BOARD_THEME: MantineColor = "gray";
 
 export const GameProvider = () => {
-  const { current: board } = useRef<Board>(new Board());
+  const { current: chess } = useRef<Chess>(new Chess());
   const [state, setGameState] = useState<GameState>(GameState.SelectingPiece);
   const [settings, _setSettings] = useState<GameSettings>({
     boardSize: 90,
@@ -54,7 +54,7 @@ export const GameProvider = () => {
   return (
     <GameCtx
       value={{
-        board,
+        chess,
         settings,
         setSettings,
         state,
