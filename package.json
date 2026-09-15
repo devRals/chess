@@ -1,28 +1,16 @@
 {
-  "name": "chess-game",
-  "private": true,
-  "version": "1.0.0",
+  "name": "",
   "type": "module",
-  "description": "",
+  "version": "1.0.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.22.0",
+      "onFail": "download"
+    }
+  },
   "scripts": {
-    "dev": "vite",
-    "test": "vitest"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "@mantine/core": "^9.5.2",
-    "@mantine/hooks": "^9.5.2",
-    "@phosphor-icons/react": "^2.1.10",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8"
-  },
-  "devDependencies": {
-    "typescript": "^5.4.3",
-    "@types/react": "^19.2.18",
-    "@types/react-dom": "^19.2.5",
-    "vite": "^8.2.2",
-    "vitest": "^5.0.0"
+    "build": "pnpm -r build",
+    "dev": "pnpm --filter client dev"
   }
 }

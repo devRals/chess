@@ -1,0 +1,26 @@
+{
+    "compilerOptions": {
+        "types": [
+            "vite/client"
+        ],
+        "allowJs": true,
+        "verbatimModuleSyntax": true,
+        "moduleDetection": "force",
+        "noUnusedLocals": true,
+        "noUnusedParameters": true,
+        "erasableSyntaxOnly": true,
+        "noFallthroughCasesInSwitch": true,
+        "declaration": true,
+        "strict": true,
+        "alwaysStrict": true,
+        "target": "es2023",
+        "module": "node16",
+        "lib": [
+            "ES2023",
+        ],
+        "moduleResolution": "node16",
+        "outDir": "dist",
+        "rootDir": "."
+    },
+    "include": ["src"]
+}

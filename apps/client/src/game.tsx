@@ -31,8 +31,8 @@ import {
   RANK,
   type PieceWithPosition,
   type PromotionPieceType,
-  type Square,
-} from "./chess";
+  type Square as ChessSquare,
+} from "@devrals/chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
 import { useState } from "react";
@@ -77,7 +77,7 @@ const PROMOTION_PIECES: Record<
   },
 } as const;
 
-const Square = ({
+const ChessSquare = ({
   size,
   squareColor,
   piece,
@@ -299,7 +299,7 @@ export const Board = () => {
             const square = getSquareFromIndex(squareIndex);
 
             return (
-              <Square
+              <ChessSquare
                 squareIndex={squareIndex}
                 targetSelection={isSelectableTarget}
                 color={settings.boardTheme}
