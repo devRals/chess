@@ -7,8 +7,9 @@
   "keywords": [
     "chess",
     "chess-engine",
-    "bitboard"
+    "bitboard", "bitmaps"
   ],
+  "readme": "../../README.md",
   "packageManager": "pnpm@11.22.0",
   "author": {
     "name": "devRals",

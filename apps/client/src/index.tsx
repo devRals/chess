@@ -11,11 +11,14 @@ const root = createRoot(container);
 
 // # App
 import { GameProvider } from "./game-context";
+import { ConnectionProvider } from "./connection-context";
 
 root.render(
   <>
     <MantineProvider forceColorScheme="dark">
-      <GameProvider />
+      <ConnectionProvider>
+        <GameProvider />
+      </ConnectionProvider>
     </MantineProvider>
   </>,
 );

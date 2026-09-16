@@ -1,0 +1,17 @@
+{
+  "name": "server",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "tsx --watch src/app.ts"
+  },
+  "dependencies": {
+    "@devrals/chess": "workspace:*",
+    "socket.io": "^4.8.3",
+    "tsx": "^4.23.13"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2"
+  }
+}

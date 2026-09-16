@@ -11,6 +11,6 @@
   },
   "scripts": {
     "build": "pnpm -r build",
-    "dev": "pnpm --filter client dev"
+    "dev": "pnpm --filter client dev & pnpm --filter server start"
   }
 }

@@ -13,6 +13,9 @@
     "noFallthroughCasesInSwitch": true,
     "declaration": true,
     "strict": true,
+    "paths": {
+        "~":[ "../shared/index"]
+    }
   },
   "include": ["src", "vite.config.ts"]
 }

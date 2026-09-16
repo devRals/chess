@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { getSquareFromIndex, getSquareIndex } from "./chess";
+import { getSquareFromIndex, getSquareIndex } from "../src/index";
 
 test("squareIndex from type `Square`", () => {
   expect(getSquareIndex("a1")).toBe(0);
