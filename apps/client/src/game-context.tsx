@@ -1,6 +1,6 @@
 import { createContext, use, useEffect, useRef, useState } from "react";
 import Game from "./game";
-import { Chess } from "@devrals/chess";
+import { Chess } from "../../../packages/chess/src";
 import { type MantineColor } from "@mantine/core";
 
 interface GameSettings {

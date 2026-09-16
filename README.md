@@ -582,7 +582,7 @@ export * from "./chess";
 Then consumers only need:
 
 ```ts
-import { Chess } from "your-package";
+import { Chess } from "@devrals/chess";
 ```
 
 ## Testing
@@ -613,12 +613,4 @@ reset
 
 ## License
 
-Add your license here before publishing the package.
-
-For example:
-
-```text
 MIT
-```
-
-or another license appropriate for your project.

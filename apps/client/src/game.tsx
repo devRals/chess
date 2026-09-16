@@ -4,7 +4,6 @@ import {
   Anchor,
   Box,
   Center,
-  CloseIcon,
   ColorSwatch,
   Divider,
   Drawer,
@@ -197,7 +196,7 @@ export const Board = () => {
           }
 
           // Board already handles the turns
-          chess.move(getSquareFromIndex(from), getSquareFromIndex(to));
+          chess.move({ from, to });
           setSelectedPiece(null);
           setGameState(GameState.SelectingPiece);
         } else {
@@ -263,19 +262,6 @@ export const Board = () => {
                 </Box>
               ),
             )}
-            <Box
-              style={{ cursor: "pointer" }}
-              w={80}
-              bd="1px solid var(--mantine-color-dark-filled)"
-              key={`promotion-cancel`}
-              onClick={() => {
-                closePromotionPanel();
-                setSelectedPiece(null);
-                setGameState(GameState.SelectingPiece);
-              }}
-            >
-              <CloseIcon width="100%" color="red" />
-            </Box>
           </Group>
         </Paper>
       )}
