@@ -83,6 +83,15 @@ export function bitboardToSquares(bitboard: BitBoard): Square[] {
   return squares;
 }
 
+export function squaresToBitboard(squares: Square[]): BitBoard {
+  let out = 0n;
+  for (const s of squares) {
+    const squareIndex = getSquareIndex(s);
+    out |= 1n << BigInt(squareIndex);
+  }
+  return out;
+}
+
 type PieceSet = Record<PieceType, BitBoard>;
 
 export const ALL_SQUARES = 0xff_ff_ff_ff_ff_ff_ff_ffn;
@@ -126,7 +135,7 @@ export const FILE = {
 export const oppositeColor = (color: ChessColor): ChessColor =>
   color === "white" ? "black" : "white";
 
-interface ChessState {
+export interface ChessState {
   bitboards: Record<ChessColor, PieceSet>;
   moveFlags: Chess["moveFlags"];
   captures: Chess["captures"];

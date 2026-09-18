@@ -1,27 +1,36 @@
 import { createContext, use, useEffect, useRef, useState } from "react";
 import Game from "./game";
-import { Chess } from "../../../packages/chess/src";
-import { type MantineColor } from "@mantine/core";
+import { Chess } from "@devrals/chess";
+import { Group, type MantineColor } from "@mantine/core";
+import RoomsAndPlayers from "./multiplayer";
+import type { GameId } from "~";
 
 interface GameSettings {
   boardSize: number;
   boardTheme: MantineColor;
   boardRotated: boolean;
+  boardAutoRotate: boolean;
 }
 
 export enum GameState {
   SelectingPiece,
   SelectingTarget,
+  WaitingForOpponent,
+}
+
+interface MultiplayerState {
+  joinedGame: GameId | null;
+
+  joinGame: (game: React.SetStateAction<GameId | null>) => void;
 }
 
 interface GameContext {
   state: GameState;
   chess: Chess;
   settings: GameSettings;
-  setSettings: (
-    newSettings: GameSettings | ((old: GameSettings) => GameSettings),
-  ) => void;
-  setGameState: React.Dispatch<React.SetStateAction<GameState>>;
+  multiplayer: MultiplayerState;
+  setSettings: (newSettings: React.SetStateAction<GameSettings>) => void;
+  setGameState: (act: React.SetStateAction<GameState>) => void;
 }
 
 const GameCtx = createContext<GameContext | null>(null);
@@ -35,12 +44,17 @@ export const GameProvider = () => {
     boardSize: 90,
     boardTheme: DEFAULT_BOARD_THEME,
     boardRotated: false,
+    boardAutoRotate: false,
   });
+  const [joinedGame, setJoinedGame] = useState<GameId | null>(null);
+
   const setSettings = (
     newSettings: GameSettings | ((old: GameSettings) => GameSettings),
   ) => {
-    _setSettings(newSettings);
-    localStorage.setItem("gameSettings", JSON.stringify(settings));
+    const _newSettings =
+      typeof newSettings === "function" ? newSettings(settings) : newSettings;
+    localStorage.setItem("gameSettings", JSON.stringify(_newSettings));
+    _setSettings(_newSettings);
   };
 
   useEffect(() => {
@@ -59,9 +73,16 @@ export const GameProvider = () => {
         setSettings,
         state,
         setGameState,
+        multiplayer: {
+          joinGame: (game) => setJoinedGame(game),
+          joinedGame,
+        },
       }}
     >
-      <Game />
+      <Group>
+        <Game />
+        <RoomsAndPlayers />
+      </Group>
     </GameCtx>
   );
 };

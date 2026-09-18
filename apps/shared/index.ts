@@ -1,2 +1,3 @@
-export * from "./player.js";
-export * from "./payload.js";
+export * from "./player";
+export * from "./payload";
+export * from "./game";

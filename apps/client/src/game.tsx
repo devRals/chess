@@ -234,7 +234,7 @@ export const Board = () => {
   };
 
   return (
-    <Stack gap={0} h="100vh" align="center" justify="center" pos="relative">
+    <Box>
       {selectedPiece && promotionPanelOpened && (
         <Paper
           p="lg"
@@ -299,7 +299,7 @@ export const Board = () => {
           })}
         </Group>
       ))}
-    </Stack>
+    </Box>
   );
 };
 
@@ -403,9 +403,7 @@ const Settings = () => {
 export default () => {
   return (
     <>
-      <Center h="100vh">
-        <Board />
-      </Center>
+      <Board />
       <Settings />
     </>
   );

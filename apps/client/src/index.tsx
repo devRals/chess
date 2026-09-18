@@ -1,7 +1,9 @@
 // # Theme
 import "@mantine/core/styles.css";
+import "@mantine/notifications/styles.css";
 import "./style.css";
 import { MantineProvider } from "@mantine/core";
+import { Notifications } from "@mantine/notifications";
 
 // # Root Element
 import { createRoot } from "react-dom/client";
@@ -17,6 +19,7 @@ root.render(
   <>
     <MantineProvider forceColorScheme="dark">
       <ConnectionProvider>
+        <Notifications position="bottom-left" />
         <GameProvider />
       </ConnectionProvider>
     </MantineProvider>

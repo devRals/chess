@@ -9,52 +9,93 @@ import {
 import { io, Socket } from "socket.io-client";
 import type { ServerToClientEvents, ClientToServerEvents } from "~";
 
-type ConnectionState = "failed" | "disconnected" | "connected" | "connecting";
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
-interface ConnectionContext {
-  socket: ClientSocket | null;
-  connectionState: ConnectionState;
-}
+type ClientSocketActions = {
+  connect: () => void;
+  disconnect: () => void;
+};
+type ConnectionContext = ClientSocketActions &
+  (
+    | {
+        socket: null;
+        connected: false;
+      }
+    | {
+        socket: ClientSocket;
+        connected: true;
+      }
+  );
 
 export const ConnectionContext = createContext<ConnectionContext | null>(null);
 
 export const ConnectionProvider = ({ children }: PropsWithChildren) => {
-  const socketRef = useRef<Socket | null>(null);
-  const [connectionState, setConnectionState] =
-    useState<ConnectionState>("disconnected");
+  const socketRef = useRef<ClientSocket>(null);
+  const [connected, setConnected] = useState(false);
+
+  const connect = () => {
+    const socket = socketRef.current;
+    if (!socket) {
+      console.error("socket is undefined");
+      return;
+    }
+    socket.connect();
+    setConnected(true);
+  };
+
+  const disconnect = () => {
+    if (!socketRef.current) return;
+    const socket = socketRef.current;
+    socket.disconnect();
+    setConnected(false);
+  };
 
   useEffect(() => {
     if (!socketRef.current) {
       socketRef.current = io(
         import.meta.env.VITE_SERVER_URL || "http://localhost:3000",
+        {
+          autoConnect: false,
+        },
       );
     }
 
-    const socket = socketRef.current;
+    const handleDisconnect = () => {
+      if (!socketRef.current) return;
+      const socket = socketRef.current;
+      socket.disconnect();
+      setConnected(false);
+    };
 
     const handleConnect = () => {
-      setConnectionState("connected");
-    };
-    const handleError = (_error: Error) => {
-      setConnectionState("failed");
-    };
-    const handleDisconnect = () => {
-      setConnectionState("disconnected");
+      const socket = socketRef.current;
+      if (!socket) return;
+      socket.connect();
+      setConnected(true);
     };
 
-    socket.on("connect", handleConnect);
+    const socket = socketRef.current;
+
     socket.on("disconnect", handleDisconnect);
-    socket.on("error", handleError);
-    socket.connect();
+    socket.on("connect", handleConnect);
 
     return () => {
+      socket.off("disconnect", handleDisconnect);
       socket.off("connect", handleConnect);
       socket.disconnect();
     };
   }, []);
 
   return (
-    <ConnectionContext value={{ socket: socketRef.current, connectionState }}>
+    <ConnectionContext
+      value={
+        {
+          socket: socketRef.current,
+          connected,
+          connect,
+          disconnect,
+        } as ConnectionContext
+      }
+    >
       {children}
     </ConnectionContext>
   );
