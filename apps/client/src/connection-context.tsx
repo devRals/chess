@@ -14,17 +14,17 @@ type ClientSocketActions = {
   connect: () => void;
   disconnect: () => void;
 };
-type ConnectionContext = ClientSocketActions &
-  (
-    | {
-        socket: null;
-        connected: false;
-      }
-    | {
-        socket: ClientSocket;
-        connected: true;
-      }
-  );
+type ConnectionState =
+  | {
+      socket: null;
+      connected: false;
+    }
+  | {
+      socket: ClientSocket;
+      connected: true;
+    };
+
+type ConnectionContext = ClientSocketActions & ConnectionState;
 
 export const ConnectionContext = createContext<ConnectionContext | null>(null);
 
@@ -34,20 +34,23 @@ export const ConnectionProvider = ({ children }: PropsWithChildren) => {
 
   const connect = () => {
     const socket = socketRef.current;
-    if (!socket) {
-      console.error("socket is undefined");
-      return;
-    }
+    if (!socket) return;
     socket.connect();
     setConnected(true);
   };
 
   const disconnect = () => {
-    if (!socketRef.current) return;
     const socket = socketRef.current;
+    if (!socket) return;
     socket.disconnect();
     setConnected(false);
   };
+
+  useEffect(() => {
+    if (!socketRef.current) return;
+    if (socketRef.current.connected) setConnected(true);
+    if (socketRef.current.disconnected) setConnected(false);
+  }, []);
 
   useEffect(() => {
     if (!socketRef.current) {
@@ -63,23 +66,28 @@ export const ConnectionProvider = ({ children }: PropsWithChildren) => {
       if (!socketRef.current) return;
       const socket = socketRef.current;
       socket.disconnect();
-      setConnected(false);
     };
 
     const handleConnect = () => {
       const socket = socketRef.current;
       if (!socket) return;
       socket.connect();
-      setConnected(true);
     };
 
     const socket = socketRef.current;
 
+    const handleConnectError = (err: Error) => {
+      setConnected(false);
+      console.error("Connection Error: ", err);
+    };
+
     socket.on("disconnect", handleDisconnect);
     socket.on("connect", handleConnect);
+    socket.on("connect_error", handleConnectError);
 
     return () => {
       socket.off("disconnect", handleDisconnect);
+      socket.off("connect_error", handleConnectError);
       socket.off("connect", handleConnect);
       socket.disconnect();
     };

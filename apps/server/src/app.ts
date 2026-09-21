@@ -2,6 +2,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import readline from "readline";
 import { stdin, stdout } from "node:process";
+import crypto from "node:crypto";
 
 import {
   type ServerToClientEvents,
@@ -10,9 +11,10 @@ import {
   type GameId,
   Player,
   Game,
+  convertToNetworkState,
 } from "~";
 
-import { Chess, ChessColor } from "@devrals/chess";
+import { Chess, getSquareIndex } from "@devrals/chess";
 
 class Config {
   static PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -21,11 +23,15 @@ class Config {
 
 const server = createServer();
 
-const io = new Server<ClientToServerEvents, ServerToClientEvents>(server, {
-  cors: {
-    origin: [Config.ORIGIN],
+type ServerSocket = Server<ClientToServerEvents, ServerToClientEvents>;
+const io: ServerSocket = new Server<ClientToServerEvents, ServerToClientEvents>(
+  server,
+  {
+    cors: {
+      origin: [Config.ORIGIN],
+    },
   },
-});
+);
 
 const games = new Map<GameId, Game>();
 const players = new Map<PlayerId, Player>();
@@ -35,6 +41,27 @@ function toArr<T>(map: Map<any, T>) {
   let out: T[] = [];
   for (const v of map.values()) out.push(v);
   return out;
+}
+
+function startANewGame(players: [Player, Player]): [Game, Chess] {
+  const [p1, p2] = players;
+  const gameName = `${p1.name} vs ${p2.name}`;
+  const gameId = crypto.randomUUID();
+  const game = new Game(gameName, gameId);
+
+  const randomIndex = Math.floor(Math.random() * players.length) as 0 | 1;
+  const white = players[randomIndex];
+  const black = randomIndex === 1 ? players[0] : players[1];
+
+  game.players = { white, black };
+  game.startTheGame();
+
+  const board = new Chess();
+
+  boards.set(gameId, board);
+  games.set(gameId, game);
+
+  return [game, board];
 }
 
 io.use((_, next) => {
@@ -53,20 +80,33 @@ io.use((_, next) => {
 
 io.on("connection", (socket) => {
   console.log("new connection: ", socket.id);
-
   socket.on("error", (err) => {
+    const player = players.get(socket.id);
+    if (player) {
+      if (player.joinedGame) {
+        games.delete(player.joinedGame);
+        boards.delete(player.joinedGame);
+      }
+      players.delete(player.id);
+    }
     console.error(err);
   });
 
   socket.on("player:create", (playerName) => {
     const player = new Player(socket.id, playerName);
     players.set(socket.id, player);
-    socket.emit("player:created", player);
+    io.sockets.emit("player:created", player);
+    io.sockets.emit("player:list_recieved", toArr(players));
   });
 
   socket.on("player:rename", (playerId, newName) => {
     const player = players.get(playerId);
     if (player) player.name = newName;
+    io.sockets.emit("player:list_recieved", toArr(players));
+  });
+
+  socket.on("player:list", () => {
+    socket.emit("player:list_recieved", toArr(players));
   });
 
   socket.on("game:create", (customeName) => {
@@ -87,51 +127,61 @@ io.on("connection", (socket) => {
     socket.join(gameId);
 
     io.sockets.emit("game:created", game);
+    io.sockets.emit("game:list_recieved", toArr(games));
   });
 
   socket.on("game:delete", (gameId) => {
     const gameFound = games.delete(gameId);
     boards.delete(gameId);
-    if (gameFound) io.sockets.emit("game:deleted", gameId);
+    for (const p of players.values()) {
+      if (p.joinedGame === gameId) p.joinedGame = null;
+    }
+    if (gameFound) {
+      io.sockets.emit("game:deleted", gameId);
+      io.sockets.emit("game:list_recieved", toArr(games));
+    }
   });
 
-  socket.on("game:join", (gameId) => {
-    const game = games.get(gameId);
-    if (!game) {
-      socket.emit("game:join_failed", {
-        gameId,
-        message: "Game doesn't exist",
-      });
-      return;
-    }
-
-    const player = players.get(socket.id);
-    if (!player) {
-      socket.emit("game:join_failed", {
-        gameId,
-        message: "Player doesn't exist",
-      });
-      return;
-    }
-    for (const x in game.players) {
-      if (!game.players[x as ChessColor]) {
-        game.players[x as ChessColor] = player;
-        console.log(`${player.name} joined the game ${game.id} as ${x}`);
-        socket.join(game.room);
-        io.sockets.emit("game:joined", game);
-        return;
-      }
-    }
-
-    socket.emit("game:join_failed", { gameId, message: "This game is full" });
-  });
-
-  socket.on("game:invite", (playerToInvite) => {
-    const player = players.get(playerToInvite.id);
+  socket.on("game:invite", (playerIdToInvite) => {
+    const player = players.get(playerIdToInvite);
     if (!player) return;
+
+    const socketPlayer = players.get(socket.id);
+    if (!socketPlayer) return;
+
+    if (socketPlayer.id === player.id) return;
+
     io.sockets.sockets
       .get(player.id)!
-      .emit("game:invited", { from: players.get(socket.id)! });
+      .emit("game:invited", { from: socketPlayer });
+  });
+
+  socket.on("game:accept_invite", (players_invite) => {
+    const playerWhoSendInvite = players.get(players_invite);
+    if (!playerWhoSendInvite) return;
+
+    const socketPlayer = players.get(socket.id);
+    if (!socketPlayer) return;
+
+    const [game, board] = startANewGame([socketPlayer, playerWhoSendInvite]);
+    const gameId = game.id;
+
+    socket.join(gameId);
+    io.sockets.sockets.get(playerWhoSendInvite.id)!.join(gameId);
+
+    socketPlayer.joinedGame = game.id;
+    playerWhoSendInvite.joinedGame = game.id;
+
+    socket.emit("game:invite_accepted", game);
+    io.sockets.emit("game:list_recieved", toArr(games));
+
+    const chessState = board.snapshot();
+    const convertedState = convertToNetworkState(chessState);
+
+    game.chessState = convertedState;
+    game.state = "started";
+
+    io.to(gameId).emit("game:started", game);
   });
 
   socket.on("game:state", (gameId) => {
@@ -141,11 +191,63 @@ io.on("connection", (socket) => {
       return;
     }
 
-    const board = boards.get(game.id);
+    const board = boards.get(gameId);
     if (!board) {
-      socket.to(game.id).emit("game:state_recived", null);
+      socket.emit("game:state_recived", null);
       return;
-    } else socket.to(game.id).emit("game:state_recived", board.snapshot());
+    }
+
+    const state = board.snapshot();
+    const convertedState = convertToNetworkState(state);
+    game.chessState = convertedState;
+    socket.emit("game:state_recived", game);
+  });
+
+  socket.on("game:move", (move) => {
+    const player = players.get(socket.id);
+    if (!player) {
+      socket.emit("game:move_failed", "This player doesn't exist");
+      return;
+    }
+    if (!player.joinedGame) {
+      socket.emit("game:move_failed", "Player is not in a game");
+      return;
+    }
+
+    let gameFound: Game | null = null;
+    for (const game of games.values()) {
+      if (game.id === player.joinedGame) gameFound = game;
+    }
+
+    if (!gameFound) {
+      socket.emit("game:move_failed", "Player is in a that doesn't exist");
+      return;
+    }
+
+    const board = boards.get(gameFound.id);
+    if (!board) {
+      socket.emit(
+        "game:move_failed",
+        "Error: Player is in a valid game. But yet the board is not created. Please report this issue to the developers",
+      );
+      return;
+    }
+    const fromMoves = board.getLegalMovesFor(move.from);
+    const toMask = 1n << BigInt(getSquareIndex(move.to));
+
+    const isMoveLegal = (fromMoves & toMask) !== 0n;
+    if (!isMoveLegal) {
+      socket.emit(
+        "game:move_failed",
+        "This move is not legal for the current state of the board",
+      );
+      return;
+    }
+
+    board.move(move);
+    const newState = convertToNetworkState(board.snapshot());
+    gameFound.chessState = newState;
+    io.to(gameFound.id).emit("game:moved", gameFound);
   });
 
   socket.on("game:list", () => {
@@ -155,6 +257,7 @@ io.on("connection", (socket) => {
   socket.on("disconnect", (reason) => {
     console.log(`${socket.id} disconnected. Reason: ${reason}`);
     players.delete(socket.id);
+    io.sockets.emit("player:list_recieved", toArr(players));
   });
 });
 

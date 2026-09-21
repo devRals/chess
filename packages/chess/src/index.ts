@@ -92,7 +92,8 @@ export function squaresToBitboard(squares: Square[]): BitBoard {
   return out;
 }
 
-type PieceSet = Record<PieceType, BitBoard>;
+export type PieceSet = Record<PieceType, BitBoard>;
+export type PieceSetPGN = Record<PieceType, Square[]>;
 
 export const ALL_SQUARES = 0xff_ff_ff_ff_ff_ff_ff_ffn;
 export const ALL_RANKS = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -144,6 +145,26 @@ export interface ChessState {
 }
 
 export class Chess {
+  static setupPGNPiecesFor(pieceColor: ChessColor): PieceSetPGN {
+    return pieceColor === "white"
+      ? {
+          king: [4],
+          pawn: [8, 9, 10, 11, 12, 13, 14, 15],
+          rook: [0, 7],
+          queen: [3],
+          bishop: [2, 5],
+          knight: [1, 6],
+        }
+      : {
+          king: [60],
+          pawn: [48, 49, 50, 51, 52, 53, 54, 55],
+          rook: [56, 63],
+          queen: [59],
+          bishop: [58, 61],
+          knight: [57, 62],
+        };
+  }
+
   static setupPiecesFor(pieceColor: ChessColor): PieceSet {
     const out: PieceSet = {
       king: 0n,

@@ -9,11 +9,9 @@ import {
   Drawer,
   Group,
   Image,
-  InputLabel,
   Paper,
   Slider,
   Stack,
-  Switch,
   Text,
   Title,
   type MantineColor,
@@ -31,12 +29,16 @@ import {
   type PieceWithPosition,
   type PromotionPieceType,
   type Square as ChessSquare,
+  type Move,
 } from "@devrals/chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useClickOutside, useDisclosure } from "@mantine/hooks";
 import { HeartIcon } from "@phosphor-icons/react/dist/ssr";
+import { useConnection } from "./connection-context";
+import { showNotification } from "@mantine/notifications";
+import { type ServerToClientEvents } from "~";
 
 const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   king: WHITE_PIECES.king,
@@ -128,7 +130,7 @@ const ChessSquare = ({
 };
 
 // bruh
-const BOARD_COLORS: Readonly<boolean[][]> = [
+const BOARD_COLORS = [
   [true, false, true, false, true, false, true, false],
   [false, true, false, true, false, true, false, true],
   [true, false, true, false, true, false, true, false],
@@ -137,9 +139,15 @@ const BOARD_COLORS: Readonly<boolean[][]> = [
   [false, true, false, true, false, true, false, true],
   [true, false, true, false, true, false, true, false],
   [false, true, false, true, false, true, false, true],
-];
+] as const;
 
-export const Board = () => {
+export const Board = ({
+  onMove,
+  rotated = false,
+}: {
+  rotated: boolean;
+  onMove: (move: Move) => void;
+}) => {
   const { chess, settings, state, setGameState } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
   const [from, setFrom] = useState(0);
@@ -181,24 +189,24 @@ export const Board = () => {
         const to = squareIndex;
 
         const targetSquareBitboard = 1n << BigInt(squareIndex);
-        // Is a legal move
-        if ((targetSquareBitboard & targetSelections) !== 0n) {
+        const isItALegalMove = (targetSquareBitboard & targetSelections) !== 0n;
+        if (isItALegalMove) {
           // Check if its a promotion
           const promotionSquares = RANK[1] | RANK[8];
-          if (
+          const isItAPromotion =
             selectedPiece &&
             selectedPiece.type === "pawn" &&
-            (targetSquareBitboard & promotionSquares) !== 0n
-          ) {
+            (targetSquareBitboard & promotionSquares) !== 0n;
+          if (isItAPromotion) {
             setTargetPromotionSquare(getSquareFromIndex(to));
             openPromotionPanel();
             break;
           }
 
-          // Board already handles the turns
-          chess.move({ from, to });
+          const move: Move = { from, to };
+          onMove(move);
           setSelectedPiece(null);
-          setGameState(GameState.SelectingPiece);
+          setTargetSelections(0n);
         } else {
           // Toggle to an another piece if pressed
           if (piece && piece.color === chess.turn) {
@@ -274,9 +282,7 @@ export const Board = () => {
             let squareIndex = real_i * 8 + real_j;
 
             // Square Index can be up to 63. Not 64
-            squareIndex = settings.boardRotated
-              ? 63 - squareIndex
-              : squareIndex;
+            squareIndex = rotated ? 63 - squareIndex : squareIndex;
 
             const isSelectableTarget =
               state === GameState.SelectingTarget &&
@@ -329,10 +335,6 @@ const Settings = () => {
     setSettings((s) => ({ ...s, boardSize: newSize }));
   };
 
-  const rotateBoard = (boardRotated: boolean) => {
-    setSettings((s) => ({ ...s, boardRotated }));
-  };
-
   return (
     <>
       <Affix>
@@ -372,15 +374,6 @@ const Settings = () => {
               onChange={(e) => setBoardSize(e)}
             />
           </Group>
-          <Switch
-            label={
-              <InputLabel size="md" content="Rotate Board">
-                Rotate Board
-              </InputLabel>
-            }
-            checked={settings.boardRotated}
-            onChange={(v) => rotateBoard(v.currentTarget.checked)}
-          />
         </Stack>
 
         <Divider mt="md" />
@@ -401,9 +394,58 @@ const Settings = () => {
 };
 
 export default () => {
+  const { connected, socket } = useConnection();
+  const { isItMyTurn } = useGameCtx();
+  const [boardRotated, setBoardRotated] = useState(false);
+  const [bufferedMove, setBufferedMove] = useState<Move | null>(null);
+
+  useEffect(() => {
+    if (!connected) return;
+
+    const newGameHandle: ServerToClientEvents["game:started"] = (game) => {
+      // ummm
+      const isUserisBlack = socket.id === game.players.black!.id;
+      setBoardRotated(isUserisBlack);
+    };
+
+    const moveFailedHandle: ServerToClientEvents["game:move_failed"] = (
+      message,
+    ) => {
+      showNotification({
+        message,
+        color: "red",
+      });
+    };
+
+    socket.on("game:started", newGameHandle);
+    socket.on("game:move_failed", moveFailedHandle);
+
+    return () => {
+      socket.off("game:started", newGameHandle);
+      socket.off("game:move_failed", moveFailedHandle);
+    };
+  }, [socket, connected]);
+
+  useEffect(() => {
+    if (connected && bufferedMove) {
+      socket.emit("game:move", bufferedMove);
+      setBufferedMove(null);
+    }
+  }, [connected, socket, bufferedMove]);
+
+  const onMove: Parameters<typeof Board>[number]["onMove"] = (move) => {
+    if (!isItMyTurn) return;
+    if (!connected) {
+      setBufferedMove(move);
+      return;
+    }
+
+    socket.emit("game:move", move);
+  };
+
   return (
     <>
-      <Board />
+      <Board onMove={onMove} rotated={boardRotated} />
       <Settings />
     </>
   );
