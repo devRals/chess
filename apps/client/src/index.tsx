@@ -19,7 +19,7 @@ root.render(
   <>
     <MantineProvider forceColorScheme="dark">
       <ConnectionProvider>
-        <Notifications position="bottom-left" />
+        <Notifications position="top-right" />
         <GameProvider />
       </ConnectionProvider>
     </MantineProvider>

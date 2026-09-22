@@ -19,18 +19,27 @@ export interface Piece {
 
 export type Rank = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type File = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h";
-type SquarePGN = `${File}${Rank}`;
-type SquareIndex = number;
+export type SquarePGN = `${File}${Rank}`;
+//prettier-ignore
+export type SquareIndex =
+  | 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+  | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15
+  | 16 | 17 | 18 | 19 | 20 | 21 | 22 | 23
+  | 24 | 25 | 26 | 27 | 28 | 29 | 30 | 31
+  | 32 | 33 | 34 | 35 | 36 | 37 | 38 | 39
+  | 40 | 41 | 42 | 43 | 44 | 45 | 46 | 47
+  | 48 | 49 | 50 | 51 | 52 | 53 | 54 | 55
+  | 56 | 57 | 58 | 59 | 60 | 61 | 62 | 63;
 export type Square = SquarePGN | SquareIndex;
 
 export type PieceWithPosition = Piece & { position: Square };
 
 export interface Move {
-  from: Square | SquareIndex;
-  to: Square | SquareIndex;
+  from: Square;
+  to: Square;
 }
 
-export function getSquareIndex(square: Square): number {
+export function getSquareIndex(square: Square): SquareIndex {
   if (typeof square === "number") return square;
 
   const file = square.slice(0, 1) as File;
@@ -46,7 +55,7 @@ export function getSquareIndex(square: Square): number {
     h: 7,
   };
 
-  return (rank - 1) * 8 + fileMap[file];
+  return ((rank - 1) * 8 + fileMap[file]) as SquareIndex;
 }
 
 export function getSquareFromIndex(squareIndex: number): SquarePGN {
@@ -266,7 +275,7 @@ export class Chess {
     return this.whitePieces | this.blackPieces;
   }
 
-  getPieceAt(square: Square | number): Piece | undefined {
+  getPieceAt(square: Square): Piece | undefined {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -320,13 +329,16 @@ export class Chess {
     return out;
   }
 
-  getAttacksFor(square: Square | number): BitBoard {
+  getAttacksFor(square: Square): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const piece = this.getPieceAt(square);
     if (!piece) return 0x0n;
 
-    type AttackFunction = (squareIndex: number, color: ChessColor) => BitBoard;
+    type AttackFunction = (
+      squareIndex: SquareIndex,
+      color: ChessColor,
+    ) => BitBoard;
     // Javascript is really is stupid
     const attacksMap: Record<PieceType, AttackFunction> = {
       pawn: (i, c) => this.getPawnAttacks(i, c),
@@ -343,7 +355,7 @@ export class Chess {
     );
   }
 
-  getKingAttacks(square: Square | number, color: ChessColor): BitBoard {
+  getKingAttacks(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -380,7 +392,7 @@ export class Chess {
     return finalAttacks;
   }
 
-  getQueenAttacks(square: Square | number, color: ChessColor): BitBoard {
+  getQueenAttacks(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     return (
@@ -389,7 +401,7 @@ export class Chess {
     );
   }
 
-  getBishopAttacks(square: Square | number, color: ChessColor): BitBoard {
+  getBishopAttacks(square: Square, color: ChessColor): BitBoard {
     const opponentPieces = this.bitboards[oppositeColor(color)];
     const kingMask = opponentPieces.king;
     // "See through" king
@@ -401,7 +413,7 @@ export class Chess {
     return attacks;
   }
 
-  getRookAttacks(square: Square | number, color: ChessColor): BitBoard {
+  getRookAttacks(square: Square, color: ChessColor): BitBoard {
     const opponentPieces = this.bitboards[oppositeColor(color)];
     const kingMask = opponentPieces.king;
     // "See through" king
@@ -413,7 +425,7 @@ export class Chess {
     return attacks;
   }
 
-  getPawnAttacks(square: Square | number, color: ChessColor): BitBoard {
+  getPawnAttacks(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -429,14 +441,14 @@ export class Chess {
     return attackRays;
   }
 
-  getKnightAttacks(squareIndex: number, color: ChessColor) {
+  getKnightAttacks(squareIndex: SquareIndex, color: ChessColor) {
     return this.getKnightMoves(squareIndex, color);
   }
 
   /**
    * Calls `this.getMovesFor` underthe hood and masks it with king checks
    */
-  getLegalMovesFor(square: Square | number): BitBoard {
+  getLegalMovesFor(square: Square): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
 
@@ -466,14 +478,14 @@ export class Chess {
   /**
    * Finds the piece at given square and generates pseudo legal moves for this piece
    */
-  getMovesFor(square: Square | number): BitBoard {
+  getMovesFor(square: Square): BitBoard {
     const squareIndex =
-      typeof square === "number" ? (square as number) : getSquareIndex(square);
+      typeof square === "number" ? square : getSquareIndex(square);
     const piece = this.getPieceAt(square);
     if (!piece) return 0x0n;
 
     type LegalMoveFunction = (
-      squareIndex: number,
+      squareIndex: SquareIndex,
       color: ChessColor,
     ) => BitBoard;
     // Javascript is kinda stupid
@@ -492,14 +504,14 @@ export class Chess {
     );
   }
 
-  getQueenMoves(square: Square | number, color: ChessColor): BitBoard {
+  getQueenMoves(square: Square, color: ChessColor): BitBoard {
     return (
       this.getRookMoves(square, color) | this.getBishopMoves(square, color)
     );
   }
 
   getBishopMoves(
-    square: Square | number,
+    square: Square,
     color: ChessColor,
     /** use it when bishop moves needs to include first team piece to the moves */
     includeTeamPiece: boolean = false,
@@ -571,7 +583,7 @@ export class Chess {
   }
 
   getRookMoves(
-    square: Square | number,
+    square: Square,
     color: ChessColor,
     /** use it when rook moves needs to include first team piece to the moves */
     includeTeamPiece: boolean = false,
@@ -642,7 +654,7 @@ export class Chess {
     return finalPositions;
   }
 
-  getKingMoves(square: Square | number, color: ChessColor): BitBoard {
+  getKingMoves(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -732,7 +744,7 @@ export class Chess {
     return finalPositions;
   }
 
-  getKnightMoves(square: Square | number, color: ChessColor): BitBoard {
+  getKnightMoves(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -768,7 +780,7 @@ export class Chess {
     return finalPositions;
   }
 
-  getPawnMoves(square: Square | number, color: ChessColor): BitBoard {
+  getPawnMoves(square: Square, color: ChessColor): BitBoard {
     const squareIndex =
       typeof square === "number" ? square : getSquareIndex(square);
     const squarePosition = 1n << BigInt(squareIndex);
@@ -835,7 +847,7 @@ export class Chess {
   }
 
   /** In order to work this method ensure `squareIndex`'s mask is occupied with a piece */
-  capture(targetSquare: Square | number, capturedBy: Piece) {
+  capture(targetSquare: Square, capturedBy: Piece) {
     const targetSquareIndex =
       typeof targetSquare === "number"
         ? targetSquare

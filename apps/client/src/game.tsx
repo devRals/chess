@@ -28,8 +28,8 @@ import {
   RANK,
   type PieceWithPosition,
   type PromotionPieceType,
-  type Square as ChessSquare,
   type Move,
+  type SquareIndex,
 } from "@devrals/chess";
 import { BLACK_PIECES, WHITE_PIECES } from "./assets/pieces";
 import { GameState, useGameCtx } from "./game-context";
@@ -49,7 +49,7 @@ const WhitePieceRenderer: Record<PieceType, React.ReactNode> = {
   pawn: WHITE_PIECES.pawn,
 } as const;
 
-const SELECTION_COLOR = "blue";
+const SELECTION_COLOR: MantineColor = "teal";
 
 const BlackPieceRenderer: Record<PieceType, React.ReactNode> = {
   king: BLACK_PIECES.king,
@@ -78,14 +78,15 @@ const PROMOTION_PIECES: Record<
   },
 } as const;
 
-const ChessSquare = ({
+const Square = ({
   size,
   squareColor,
   piece,
   squareIndex,
-  onCellClick,
   targetSelection,
   color,
+  visualize,
+  ...rest
 }: {
   squareIndex: number;
   squareColor: ChessColor;
@@ -93,12 +94,15 @@ const ChessSquare = ({
   size: number;
   targetSelection: boolean;
   color: MantineColor;
-  onCellClick: () => void;
-}) => {
-  const pieceRenderer =
-    piece && piece.color === "black" ? BlackPieceRenderer : WhitePieceRenderer;
-
+  visualize?: PieceWithPosition | null;
+} & React.ComponentProps<"div">) => {
   const finalColor = squareColor === "black" ? "dark.8" : `${color}.5`;
+
+  const displayPiece = visualize ? visualize : piece;
+  const pieceRenderer =
+    displayPiece && displayPiece.color === "black"
+      ? BlackPieceRenderer
+      : WhitePieceRenderer;
 
   return (
     <Center
@@ -107,13 +111,19 @@ const ChessSquare = ({
       w={size}
       bd="2px solid dark.3"
       h={size}
-      onClick={onCellClick}
-      style={{ cursor: "grab" }}
       pos="relative"
+      {...rest}
     >
-      {piece && (
-        <Image src={pieceRenderer[piece.type]} w="100%" draggable={false} />
+      {displayPiece && (
+        <Image
+          src={pieceRenderer[displayPiece.type]}
+          w="100%"
+          draggable={false}
+          style={{ pointerEvents: "none" }}
+          opacity={visualize ? 0.5 : 1}
+        />
       )}
+
       {targetSelection && (
         <Box
           pos="absolute"
@@ -123,6 +133,7 @@ const ChessSquare = ({
           h="100%"
           bg={SELECTION_COLOR}
           opacity={0.5}
+          style={{ pointerEvents: "none" }}
         />
       )}
     </Center>
@@ -150,7 +161,7 @@ export const Board = ({
 }) => {
   const { chess, settings, state, setGameState } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
-  const [from, setFrom] = useState(0);
+  const [from, setFrom] = useState<SquareIndex>(0);
   const [selectedPiece, setSelectedPiece] = useState<PieceWithPosition | null>(
     null,
   );
@@ -160,6 +171,10 @@ export const Board = ({
   ] = useDisclosure(false);
   const [targetPromotionSquare, setTargetPromotionSquare] =
     useState<SquareType>("a1");
+  const [draggingPiece, setDraggingPiece] = useState<PieceWithPosition | null>(
+    null,
+  );
+  const [dragTarget, setDragTarget] = useState<SquareIndex | null>(null);
 
   const clickOutSideRef = useClickOutside(() => {
     closePromotionPanel();
@@ -241,6 +256,29 @@ export const Board = ({
     closePromotionPanel();
   };
 
+  const handleDragDropMove = (e: React.DragEvent) => {
+    e.preventDefault();
+
+    if (!draggingPiece) return;
+
+    const to = Number(e.currentTarget.id.replace("square-", "")) as SquareIndex;
+
+    const move: Move = {
+      from: draggingPiece.position,
+      to,
+    };
+
+    onMove(move);
+    setDraggingPiece(null);
+  };
+
+  const emptyDragImage =
+    typeof Image !== "undefined" ? new window.Image() : null;
+  if (emptyDragImage) {
+    emptyDragImage.src =
+      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7";
+  }
+
   return (
     <Box>
       {selectedPiece && promotionPanelOpened && (
@@ -279,27 +317,64 @@ export const Board = ({
             const real_i = BOARD_COLORS.length - 1 - i;
             const real_j = j;
 
-            let squareIndex = real_i * 8 + real_j;
+            let squareIndex = (real_i * 8 + real_j) as SquareIndex;
 
             // Square Index can be up to 63. Not 64
-            squareIndex = rotated ? 63 - squareIndex : squareIndex;
+            squareIndex = rotated
+              ? ((63 - squareIndex) as SquareIndex)
+              : squareIndex;
 
             const isSelectableTarget =
               state === GameState.SelectingTarget &&
               ((1n << BigInt(squareIndex)) & BigInt(targetSelections)) !== 0n;
 
-            const square = getSquareFromIndex(squareIndex);
+            const pieceAtThisSquare = chess.getPieceAt(squareIndex);
 
             return (
-              <ChessSquare
+              <Square
                 squareIndex={squareIndex}
                 targetSelection={isSelectableTarget}
                 color={settings.boardTheme}
-                key={`square-${square}`}
+                key={`square-${squareIndex}`}
                 size={settings.boardSize}
-                piece={chess.getPieceAt(square)}
+                piece={chess.getPieceAt(squareIndex)}
                 squareColor={isWhite ? "white" : "black"}
-                onCellClick={() => handleMove(square)}
+                onClick={() => handleMove(squareIndex)}
+                onDrop={handleDragDropMove}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (pieceAtThisSquare || dragTarget !== squareIndex) {
+                    setDragTarget(squareIndex);
+                  }
+                }}
+                onDragStart={(e) => {
+                  if (!pieceAtThisSquare) return;
+
+                  if (emptyDragImage) {
+                    e.dataTransfer.setDragImage(emptyDragImage, 0, 0);
+                  }
+                  e.dataTransfer.effectAllowed = "move";
+
+                  setDraggingPiece({
+                    position: squareIndex,
+                    ...pieceAtThisSquare,
+                  });
+                }}
+                draggable={!!pieceAtThisSquare}
+                onDragLeave={() => {
+                  if (dragTarget === squareIndex) {
+                    setDragTarget(null);
+                  }
+                }}
+                visualize={
+                  draggingPiece && dragTarget === squareIndex
+                    ? draggingPiece
+                    : null
+                }
+                onDragEnd={() => {
+                  setDraggingPiece(null);
+                  setDragTarget(null);
+                }}
               />
             );
           })}
@@ -406,6 +481,10 @@ export default () => {
       // ummm
       const isUserisBlack = socket.id === game.players.black!.id;
       setBoardRotated(isUserisBlack);
+      showNotification({
+        message: `${game.players.white!.name} vs ${game.players.black!.name}`,
+        title: "Game started",
+      });
     };
 
     const moveFailedHandle: ServerToClientEvents["game:move_failed"] = (

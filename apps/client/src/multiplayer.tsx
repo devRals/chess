@@ -25,22 +25,6 @@ import { PlusIcon, XIcon } from "@phosphor-icons/react/dist/ssr";
 import { showNotification } from "@mantine/notifications";
 import type { DisconnectDescription, Socket } from "socket.io-client";
 
-const GameComponent = ({ game }: { game: Game }) => {
-  return (
-    <Card flex={1} p="sm">
-      <Group>
-        <Stack>
-          <Title order={5}>{game.customName}</Title>
-          <Text span>
-            {game.players.white?.name || "???"} -{" "}
-            {game.players.black?.name || "???"}
-          </Text>
-        </Stack>
-      </Group>
-    </Card>
-  );
-};
-
 const PlayerComponent = ({ p }: { p: Player }) => {
   const { socket, connected } = useConnection();
 
@@ -99,7 +83,7 @@ const Players = () => {
         value={searchString}
         onChange={(e) => setSearch(e.target.value)}
       />
-      <ScrollArea mih="80vh">
+      <ScrollArea h="80vh">
         <Stack>
           {filteredPlayers.map((p) => (
             <PlayerComponent key={p.id} p={p} />
@@ -107,6 +91,25 @@ const Players = () => {
         </Stack>
       </ScrollArea>
     </Stack>
+  );
+};
+
+const GameComponent = ({ game }: { game: Game }) => {
+  return (
+    <Card flex={1} p="sm">
+      <Group>
+        <Stack>
+          <Title order={5}>{game.customName}</Title>
+          <Text span>
+            <Text span fw="bold">
+              Players:{" "}
+            </Text>
+            {game.players.white?.name || "???"} -{" "}
+            {game.players.black?.name || "???"}
+          </Text>
+        </Stack>
+      </Group>
+    </Card>
   );
 };
 
@@ -180,7 +183,7 @@ const Games = () => {
           </Button>
         </Stack>
       </Modal>
-      <ScrollArea mih="80vh">
+      <ScrollArea h="80vh" mah="90vh">
         <Stack>
           {games.map((g) => (
             <GameComponent key={g.id} game={g} />
