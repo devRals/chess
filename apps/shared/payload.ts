@@ -5,6 +5,8 @@ import {
   type ChessState,
   type Move,
   type PieceSetPGN,
+  type PieceWithPosition,
+  type PromotionPieceType,
   type Square,
   squaresToBitboard,
 } from "@devrals/chess";
@@ -82,14 +84,26 @@ export function convertToRegularState(state: ChessNetworkState): ChessState {
   };
 }
 
+export interface ChatMessage {
+  from: Player;
+  message: string;
+}
+
 export interface ClientToServerEvents {
   "player:rename": (id: string, newName: string) => void;
   "player:create": (name: string) => void;
   "player:list": () => void;
 
+  "chat:message": (message: string) => void;
+
   "game:create": (customName: string) => void;
   "game:delete": (id: GameId) => void;
   "game:move": (move: Move) => void;
+  "game:promote": (
+    to: PromotionPieceType,
+    pieceToPromote: PieceWithPosition,
+    targetPromotionSquare: Square,
+  ) => void;
   "game:invite": (playerId: PlayerId) => void;
   "game:accept_invite": (playerId: PlayerId) => void;
   "game:state": (gameId: GameId) => void;
@@ -99,11 +113,14 @@ export interface ServerToClientEvents {
   "player:created": (player: Player) => void;
   "player:list_recieved": (players: Player[]) => void;
 
+  "chat:message_recieved": (msg: ChatMessage) => void;
+
   "game:created": (game: Game) => void;
   "game:started": (game: Game) => void;
   "game:moved": (game: Game) => void;
   "game:move_failed": (message: string) => void;
   "game:create_failed": (message: string) => void;
+  "game:ended": (winner?: ChessColor) => void;
   "game:deleted": (gameId: GameId) => void;
   "game:list_recieved": (games: Game[]) => void;
   "game:invited": (data: { from: Player }) => void;

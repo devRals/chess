@@ -19,11 +19,12 @@ import {
 } from "@mantine/core";
 import { useConnection } from "./connection-context";
 import { useEffect, useState } from "react";
-import type { Game, Player, ServerToClientEvents } from "~";
+import type { ChatMessage, Game, Player, ServerToClientEvents } from "~";
 import { useDisclosure } from "@mantine/hooks";
-import { PlusIcon, XIcon } from "@phosphor-icons/react/dist/ssr";
+import { PlusIcon, XIcon } from "@phosphor-icons/react";
 import { showNotification } from "@mantine/notifications";
 import type { DisconnectDescription, Socket } from "socket.io-client";
+import { PaperPlaneRightIcon } from "@phosphor-icons/react/dist/ssr";
 
 const PlayerComponent = ({ p }: { p: Player }) => {
   const { socket, connected } = useConnection();
@@ -94,24 +95,22 @@ const Players = () => {
   );
 };
 
-const GameComponent = ({ game }: { game: Game }) => {
-  return (
-    <Card flex={1} p="sm">
-      <Group>
-        <Stack>
-          <Title order={5}>{game.customName}</Title>
-          <Text span>
-            <Text span fw="bold">
-              Players:{" "}
-            </Text>
-            {game.players.white?.name || "???"} -{" "}
-            {game.players.black?.name || "???"}
+const GameComponent = ({ game }: { game: Game }) => (
+  <Card flex={1} p="sm">
+    <Group>
+      <Stack>
+        <Title order={5}>{game.customName}</Title>
+        <Text span>
+          <Text span fw="bold">
+            Players:{" "}
           </Text>
-        </Stack>
-      </Group>
-    </Card>
-  );
-};
+          {game.players.white?.name || "???"} -{" "}
+          {game.players.black?.name || "???"}
+        </Text>
+      </Stack>
+    </Group>
+  </Card>
+);
 
 const Games = () => {
   const [games, setGames] = useState<Game[]>([]);
@@ -194,8 +193,67 @@ const Games = () => {
   );
 };
 
+const Message = (msg: ChatMessage) => (
+  <Group>
+    <Text span fw="bold" c="red">
+      {msg.from.name}
+      {": "}
+    </Text>
+    <Text textWrap="wrap">{msg.message}</Text>
+  </Group>
+);
+
 const Chat = () => {
-  return "Chat is not implemented yet :3";
+  const [userMessage, setUserMessage] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const { socket, connected } = useConnection();
+
+  useEffect(() => {
+    if (!connected) return;
+
+    const newMessageHandle: ServerToClientEvents["chat:message_recieved"] = (
+      msg,
+    ) => {
+      setMessages((p) => [...p, msg]);
+    };
+
+    socket.on("chat:message_recieved", newMessageHandle);
+
+    return () => {
+      socket.off("chat:message_recieved", newMessageHandle);
+    };
+  }, [socket, connected]);
+
+  const sendMessage = (msg: string) => {
+    if (!connected) return;
+    socket.emit("chat:message", msg);
+    setUserMessage("");
+  };
+
+  return (
+    <ScrollArea h="80vh">
+      <Stack>
+        <TextInput
+          w="100%"
+          placeholder="type something :3"
+          onKeyDown={(e) => e.key === "Enter" && sendMessage(userMessage)}
+          value={userMessage}
+          onChange={(e) => setUserMessage(e.target.value)}
+          rightSection={
+            <ActionIcon
+              onClick={() => sendMessage(userMessage)}
+              variant="light"
+            >
+              <PaperPlaneRightIcon />
+            </ActionIcon>
+          }
+        />
+        {messages.map((msg) => (
+          <Message key={`${msg.from.id}-${msg.message}`} {...msg} />
+        ))}
+      </Stack>
+    </ScrollArea>
+  );
 };
 
 export default () => {

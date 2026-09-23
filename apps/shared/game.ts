@@ -4,7 +4,7 @@ import { type Player } from "./player";
 
 export type GameId = string;
 
-export type GameState = "started" | "waiting-for-players";
+export type GameState = "started" | "waiting-for-players" | "ended";
 
 export class Game {
   get room() {
@@ -66,10 +66,6 @@ export class Game {
     white: null,
     black: null,
   };
-
-  startTheGame() {
-    this.state = "started";
-  }
 
   constructor(customName: string, id: string) {
     this.customName = customName;

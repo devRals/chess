@@ -14,7 +14,12 @@ import {
   convertToNetworkState,
 } from "~";
 
-import { Chess, getSquareIndex } from "@devrals/chess";
+import {
+  ALL_SQUARES_PGN,
+  Chess,
+  getSquareIndex,
+  oppositeColor,
+} from "@devrals/chess";
 
 class Config {
   static PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
@@ -54,7 +59,7 @@ function startANewGame(players: [Player, Player]): [Game, Chess] {
   const black = randomIndex === 1 ? players[0] : players[1];
 
   game.players = { white, black };
-  game.startTheGame();
+  game.state = "started";
 
   const board = new Chess();
 
@@ -244,14 +249,81 @@ io.on("connection", (socket) => {
       return;
     }
 
+    const game = gameFound;
     board.move(move);
     const newState = convertToNetworkState(board.snapshot());
-    gameFound.chessState = newState;
-    io.to(gameFound.id).emit("game:moved", gameFound);
+    game.chessState = newState;
+    io.to(gameFound.id).emit("game:moved", game);
+
+    let [whiteMoves, blackMoves] = [0n, 0n];
+
+    for (const sq of ALL_SQUARES_PGN) {
+      const piece = board.getPieceAt(sq);
+      if (!piece) continue;
+      const moves = board.getLegalMovesFor(sq);
+
+      if (piece.color === "white") whiteMoves |= moves;
+      else blackMoves |= moves;
+    }
+
+    if (whiteMoves === 0n) {
+      if (board.inCheck("white"))
+        io.to(gameFound.id).emit("game:ended", "black");
+      else socket.emit("game:ended");
+
+      game.state = "ended";
+    }
+    if (blackMoves === 0n) {
+      if (board.inCheck("black"))
+        io.to(gameFound.id).emit("game:ended", "white");
+      else socket.emit("game:ended");
+
+      game.state = "ended";
+    }
   });
+
+  socket.on(
+    "game:promote",
+    (promoteTo, pieceToPromote, targetPromotionSquare) => {
+      const player = players.get(socket.id);
+      if (!player) return;
+
+      if (!player.joinedGame) return;
+
+      const [game, board] = [
+        games.get(player.joinedGame),
+        boards.get(player.joinedGame),
+      ];
+
+      if (!game) return;
+      if (!board) return;
+
+      const piece = board.getPieceAt(pieceToPromote.position);
+      if (!piece) return;
+      if (
+        piece.color === pieceToPromote.color &&
+        piece.type === "pawn" &&
+        pieceToPromote.type === "pawn"
+      )
+        board.promote(promoteTo, pieceToPromote, targetPromotionSquare);
+
+      const boardState = board.snapshot();
+      const state = convertToNetworkState(boardState);
+      game.chessState = state;
+      io.to(player.joinedGame).emit("game:moved", game);
+    },
+  );
 
   socket.on("game:list", () => {
     socket.emit("game:list_recieved", toArr(games));
+  });
+
+  // No private chats for now
+  socket.on("chat:message", (message) => {
+    const player = players.get(socket.id);
+    if (!player) return;
+
+    io.sockets.emit("chat:message_recieved", { message, from: player });
   });
 
   socket.on("disconnect", (reason) => {

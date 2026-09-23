@@ -9,6 +9,7 @@ import {
   Drawer,
   Group,
   Image,
+  Overlay,
   Paper,
   Slider,
   Stack,
@@ -86,6 +87,7 @@ const Square = ({
   targetSelection,
   color,
   visualize,
+  positionText,
   ...rest
 }: {
   squareIndex: number;
@@ -95,6 +97,7 @@ const Square = ({
   targetSelection: boolean;
   color: MantineColor;
   visualize?: PieceWithPosition | null;
+  positionText?: string;
 } & React.ComponentProps<"div">) => {
   const finalColor = squareColor === "black" ? "dark.8" : `${color}.5`;
 
@@ -140,7 +143,7 @@ const Square = ({
   );
 };
 
-// bruh
+/** bruh*/
 const BOARD_COLORS = [
   [true, false, true, false, true, false, true, false],
   [false, true, false, true, false, true, false, true],
@@ -154,10 +157,16 @@ const BOARD_COLORS = [
 
 export const Board = ({
   onMove,
+  onPromote,
   rotated = false,
 }: {
   rotated: boolean;
   onMove: (move: Move) => void;
+  onPromote: (
+    to: PromotionPieceType,
+    pieceToPromote: PieceWithPosition,
+    targetPromotionSquare: SquareType,
+  ) => void;
 }) => {
   const { chess, settings, state, setGameState } = useGameCtx();
   const [targetSelections, setTargetSelections] = useState<BitBoard>(0n);
@@ -203,7 +212,7 @@ export const Board = ({
       case GameState.SelectingTarget: {
         const to = squareIndex;
 
-        const targetSquareBitboard = 1n << BigInt(squareIndex);
+        const targetSquareBitboard = 1n << BigInt(to);
         const isItALegalMove = (targetSquareBitboard & targetSelections) !== 0n;
         if (isItALegalMove) {
           // Check if its a promotion
@@ -213,7 +222,7 @@ export const Board = ({
             selectedPiece.type === "pawn" &&
             (targetSquareBitboard & promotionSquares) !== 0n;
           if (isItAPromotion) {
-            setTargetPromotionSquare(getSquareFromIndex(to));
+            setTargetPromotionSquare(to);
             openPromotionPanel();
             break;
           }
@@ -250,7 +259,7 @@ export const Board = ({
   const handlePromotion = (promoteTo: PromotionPieceType) => {
     const pieceToPromote = selectedPiece;
     if (!pieceToPromote) throw new Error("Cannot promote an undefined piece");
-    chess.promote(promoteTo, pieceToPromote, targetPromotionSquare);
+    onPromote(promoteTo, pieceToPromote, targetPromotionSquare);
     setSelectedPiece(null);
     setGameState(GameState.SelectingPiece);
     closePromotionPanel();
@@ -262,6 +271,17 @@ export const Board = ({
     if (!draggingPiece) return;
 
     const to = Number(e.currentTarget.id.replace("square-", "")) as SquareIndex;
+    const toBitBoard = 1n << BigInt(to);
+    const promotionSquares = RANK[1] | RANK[8];
+
+    const isItAPromotion =
+      draggingPiece.type === "pawn" && (toBitBoard & promotionSquares) !== 0n;
+
+    if (isItAPromotion) {
+      setTargetPromotionSquare(to);
+      openPromotionPanel();
+      return;
+    }
 
     const move: Move = {
       from: draggingPiece.position,
@@ -272,15 +292,22 @@ export const Board = ({
     setDraggingPiece(null);
   };
 
-  const emptyDragImage =
-    typeof Image !== "undefined" ? new window.Image() : null;
-  if (emptyDragImage) {
-    emptyDragImage.src =
-      "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBTAA7";
-  }
-
   return (
-    <Box>
+    <Box id="board">
+      <Title order={3} ta="center">
+        <Text
+          fw="bolder"
+          fz="h3"
+          span
+          c={chess.turn === "white" ? "white" : "black"}
+          tt="uppercase"
+        >
+          {chess.turn}
+        </Text>
+        <Text span fz="h3" fw="bolder">
+          's Turn
+        </Text>
+      </Title>
       {selectedPiece && promotionPanelOpened && (
         <Paper
           p="lg"
@@ -347,13 +374,9 @@ export const Board = ({
                     setDragTarget(squareIndex);
                   }
                 }}
-                onDragStart={(e) => {
+                onDragStart={() => {
                   if (!pieceAtThisSquare) return;
-
-                  if (emptyDragImage) {
-                    e.dataTransfer.setDragImage(emptyDragImage, 0, 0);
-                  }
-                  e.dataTransfer.effectAllowed = "move";
+                  if (pieceAtThisSquare.color !== chess.turn) return;
 
                   setDraggingPiece({
                     position: squareIndex,
@@ -473,6 +496,8 @@ export default () => {
   const { isItMyTurn } = useGameCtx();
   const [boardRotated, setBoardRotated] = useState(false);
   const [bufferedMove, setBufferedMove] = useState<Move | null>(null);
+  const [gameEnded, setGameEnded] = useState(false);
+  const [winner, setWinner] = useState<ChessColor>();
 
   useEffect(() => {
     if (!connected) return;
@@ -496,10 +521,17 @@ export default () => {
       });
     };
 
+    const endGameHandle: ServerToClientEvents["game:ended"] = (winner) => {
+      setGameEnded(true);
+      setWinner(winner);
+    };
+
+    socket.on("game:ended", endGameHandle);
     socket.on("game:started", newGameHandle);
     socket.on("game:move_failed", moveFailedHandle);
 
     return () => {
+      socket.off("game:ended", endGameHandle);
       socket.off("game:started", newGameHandle);
       socket.off("game:move_failed", moveFailedHandle);
     };
@@ -522,9 +554,52 @@ export default () => {
     socket.emit("game:move", move);
   };
 
+  const onPromote: Parameters<typeof Board>[number]["onPromote"] = (
+    to,
+    pieceToPromote,
+    targetPromotionSquare,
+  ) => {
+    if (!isItMyTurn) return;
+    if (!connected) return;
+
+    socket.emit("game:promote", to, pieceToPromote, targetPromotionSquare);
+  };
+
   return (
     <>
-      <Board onMove={onMove} rotated={boardRotated} />
+      {gameEnded && (
+        <Overlay
+          backgroundOpacity={0.6}
+          component={Stack}
+          align="center"
+          justify="center"
+          onClick={() => setGameEnded(false)}
+        >
+          {winner ? (
+            <>
+              <Title order={2} fw={700}>
+                Checkmate!
+              </Title>
+              <Text ta="center" fz="lg">
+                <Text span c={winner === "white" ? "white" : "dark"} fz="lg">
+                  {winner}
+                </Text>{" "}
+                Won!
+              </Text>
+            </>
+          ) : (
+            <>
+              <Title order={2} fw={700}>
+                Game Ended!
+              </Title>
+              <Text ta="center" fz="lg">
+                Draw
+              </Text>
+            </>
+          )}
+        </Overlay>
+      )}
+      <Board onMove={onMove} onPromote={onPromote} rotated={boardRotated} />
       <Settings />
     </>
   );
